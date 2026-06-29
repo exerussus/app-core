@@ -1,0 +1,20 @@
+{
+  "name": "com.exerussus.app-core",
+  "version": "1.0.0",
+  "displayName": "App-Core",
+  "description": "Реализация app стартера.",
+  "unity": "2020.3",
+  "dependencies": {},
+  "keywords": [
+    "exerussus",
+    "app"
+  ],
+  "author": {
+    "name": "Exerussus",
+    "email": "solovyov.production@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/exerussus/app-core.git"
+  }
+}

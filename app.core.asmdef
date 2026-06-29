@@ -1,0 +1,20 @@
+{
+    "name": "app.core",
+    "rootNamespace": "",
+    "references": [
+        "GUID:4a5dd00b68966c04ca73b05fabee64d4",
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "GUID:b70cf0eefb27f814c98931c7bf29065c",
+        "GUID:75469ad4d38634e559750d17036d5f7c",
+        "GUID:17af2e148fb56ee4d881a508db686bc2"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
