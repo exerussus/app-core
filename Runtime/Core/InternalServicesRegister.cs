@@ -1,5 +1,6 @@
 ﻿using App.Abstractions;
 using App.Services.Navigator;
+using AppCore.Runtime.Core.InternalServices.Manipulators.Audio;
 
 namespace App
 {
@@ -10,6 +11,7 @@ namespace App
             return new IAppService[]
             {
                 new NavigatorService(),
+                new AudioPageService(),
             };
         }
     }   

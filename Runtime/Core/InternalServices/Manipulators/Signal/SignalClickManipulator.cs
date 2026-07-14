@@ -1,16 +1,20 @@
 using Exerussus.Payloads;
 using UnityEngine.UIElements;
 
-namespace App.UIToolkit.Manipulators
+namespace AppCore.Runtime.Core.InternalServices.Manipulators.Signal
 {
     public class SignalClickManipulator : Manipulator
     {
-        private Payload _payload;
+        public SignalClickManipulator(Payload payload)
+        {
+            _payload = payload;
+        }
+
+        private readonly Payload _payload;
         
         protected override void RegisterCallbacksOnTarget()
         {
             target.RegisterCallback<PointerUpEvent>(OnClick, TrickleDown.TrickleDown);
-            _payload = UiSignal.CollectPayload(target);
         }
 
         protected override void UnregisterCallbacksFromTarget()

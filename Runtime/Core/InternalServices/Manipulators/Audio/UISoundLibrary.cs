@@ -3,12 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using Sirenix.OdinInspector;
-using UnityEngine;
-#if UNITY_EDITOR
 using UnityEditor;
-#endif
+using UnityEngine;
 
-namespace App.UIToolkit.Manipulators
+namespace AppCore.Runtime.Core.InternalServices.Manipulators.Audio
 {
     [CreateAssetMenu(fileName = "UIAudioLibrary", menuName = "UI/Audio Library")]
     public class UISoundLibrary : ScriptableObject

@@ -1,7 +1,6 @@
 ﻿
-using App.Services.Navigator;
-using App.UIToolkit.Manipulators;
 using App.Abstractions;
+using AppCore.Runtime.Core.InternalServices.Manipulators.Audio;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -12,7 +11,7 @@ namespace App.Core
     /// Базовый класс страницы приложения для UI Toolkit.
     /// Держит VisualTreeAsset и монтирует его в переданный контейнер при активации.
     /// </summary>
-    public class AppPage : MonoBehaviour
+    public class AppPage : MonoBehaviour, IAppView
     {
         [SerializeField] private string pageId;
         [SerializeField] private VisualTreeAsset visualTree;
@@ -23,8 +22,9 @@ namespace App.Core
         public string PageId => pageId;
         public AppPageController Controller => controller;
         public PageUID PageUid { get; private set; }
-        public UISoundLibrary DefaultSoundLibrary { get; set; }
-        public SoundAdapter SoundAdapter { get; set; }
+        public AppRunner AppRunner { get; internal set; }
+        public UISoundLibrary OverrideSoundLibrary => overrideSoundLibrary;
+
         public bool HasController => _hasController;
 
         /// <summary>Корневой элемент, созданный при монтировании. Null до вызова Mount.</summary>
@@ -69,24 +69,7 @@ namespace App.Core
             if (!_registered)
             {
                 _registered = true;
-                var soundLibrary = overrideSoundLibrary == null ? DefaultSoundLibrary : overrideSoundLibrary;
-                
-                if (soundLibrary != null) Root.Query<Button>().ForEach(btn =>
-                {
-                    btn.AddManipulator(new SoundClickManipulator(SoundAdapter, soundLibrary));
-                    if (btn.ClassListContains("signal-button")) btn.AddManipulator(new SignalClickManipulator());
-                    else
-                    {
-                        foreach (var (className, pageUid) in NavigationLink.Links)
-                        {
-                            if (btn.ClassListContains(className))
-                            {
-                                btn.ClassListContains("signal-button");
-                                btn.AddManipulator(new SignalClickManipulator());
-                            }
-                        }
-                    }
-                });
+                AppRunner.RegisterAppView(this);
             }
         }
     }

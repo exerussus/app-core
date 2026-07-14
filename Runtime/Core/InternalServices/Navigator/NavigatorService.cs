@@ -2,33 +2,77 @@
 using System.Collections.Generic;
 using App.Abstractions;
 using App.Core;
-using App.UIToolkit.Manipulators;
+using AppCore.Runtime.Core.InternalServices.Manipulators.Signal;
+using AppCore.Runtime.Core.Models;
 using Exerussus.DI;
 using UnityEngine;
-using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.Controls;
 using UnityEngine.UIElements;
 using Cursor = UnityEngine.Cursor;
 
 namespace App.Services.Navigator
 {
-    public class NavigatorService : IAppServiceUpdate
+    public class NavigatorService : IAppService, IAppManipulatorBuilder
     {
         [Inject] private readonly AppRunner _appRunner;
         
         private readonly Dictionary<PageUID, PageUID> _backHooks = new ();
         private readonly HashSet<PageUID> _cursorLockHooks = new ();
         private readonly HashSet<PageUID> _cursorUnlockHooks = new ();
-
+        
         private PageUID _pageUid;
-        private KeyControl _escapeKey;
+        
+        public void OnInject(DependenciesContainer container)
+        {
+            if (container.Has<InputAdapter>())
+            {
+                var adapter = container.Get<InputAdapter>();
+                adapter.OnBackPressed += OnBackPressed;
+            }
+        }
+
+        private void OnBackPressed()
+        {
+            if (_pageUid.IsEmpty()) return;
+            if (_backHooks.TryGetValue(_pageUid, out var backPageUid))
+            {
+                if (backPageUid == PageUID.None)
+                {
+                    _appRunner.SwitchToPrevPage();
+                }
+                else _appRunner.SwitchToPage(backPageUid);
+            }
+        }
 
         public void Initialize()
         {
             UiSignal.OnAnyButtonPressedSubscribe(OnAnyButtonPressed);
             _appRunner.OnPageMounted += OnPageMounted;
             _appRunner.OnPageChanged += OnPageChanged;
-            _escapeKey = Keyboard.current[Key.Escape];
+        }
+
+        public void OnBuildButtonManipulator(IAppView appView, Button button, PayloadBuilder payloadBuilder)
+        {
+            foreach (var (className, pageUid) in NavigationLink.LinksPages)
+            {
+                if (button.ClassListContains(className))
+                {
+                    button.AddToClassList("signal-button");
+                    var payload = payloadBuilder.CreatePayload();
+                    payload.Set(NavigationLink.NavigateToKey, pageUid.Id);
+                    return;
+                }
+            }
+            
+            foreach (var (className, popupId) in NavigationLink.LinksPopups)
+            {
+                if (button.ClassListContains(className))
+                {
+                    button.AddToClassList("signal-button");
+                    var payload = payloadBuilder.CreatePayload();
+                    payload.Set(NavigationLink.NavigateToKey, popupId.Id);
+                    return;
+                }
+            }
         }
 
         private void OnPageChanged((PageUID prev, PageUID current) ctx)
@@ -47,31 +91,33 @@ namespace App.Services.Navigator
             }
         }
 
-        public void Update()
-        {
-            if (_escapeKey.wasPressedThisFrame)
-            {
-                if (_pageUid.IsEmpty()) return;
-                if (_backHooks.TryGetValue(_pageUid, out var backPageUid))
-                {
-                    if (backPageUid == PageUID.None)
-                    {
-                        _appRunner.SwitchToPrevPage();
-                    }
-                    else _appRunner.SwitchToPage(backPageUid);
-                }
-            }
-        }
-
         private void OnAnyButtonPressed(ButtonPressed buttonPressed)
         {
             if (!buttonPressed.Payload.IsValid()) return;
 
             if (buttonPressed.Payload.TryGet(NavigationLink.NavigateToKey, out var value))
             {
-                var pageUid = PageUID.FromRaw(value);
-                if (pageUid == PageUID.None) _appRunner.SwitchToPrevPage();
-                else _appRunner.SwitchToPage(pageUid);
+                if (value == 0)
+                {
+                    if (_appRunner.IsActiveAnyPopup())
+                    {
+                        _appRunner.CloseActivePopup();
+                    }
+                    else
+                    {
+                        _appRunner.SwitchToPrevPage();
+                    }
+                }
+                else if (value > 0)
+                {
+                    var pageUid = PageUID.FromRaw(value);
+                    _appRunner.SwitchToPage(pageUid);
+                }
+                else
+                {
+                    var popupUid = PopupUID.FromRaw(value);
+                    _appRunner.OpenPopup(popupUid);
+                }
             }
         }
 
@@ -88,7 +134,7 @@ namespace App.Services.Navigator
             
             foreach (var className in backActionHook.GetClasses())
             {
-                if (NavigationLink.Links.TryGetValue(className, out var toPage))
+                if (NavigationLink.LinksPages.TryGetValue(className, out var toPage))
                 {
                     _backHooks.Add(pageUid, toPage);
                     return;

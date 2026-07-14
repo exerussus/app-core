@@ -1,14 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-#if UNITY_EDITOR
 using UnityEngine;
-#endif
 
 namespace App.Core
 {
     // Лёгкий идентификатор страницы: long-хэш из строки.
     // Сравнение — по id (один long-компэр). default(PageUID) == "пустой" (Id 0).
+    // Знак: валидный Id всегда > 0. Id == 0 — None/невалид. Id < 0 — сломанные данные.
     public readonly struct PageUID : IEquatable<PageUID>
     {
         public readonly long Id;
@@ -29,7 +28,13 @@ namespace App.Core
         public static readonly PageUID None = default;   // Id == 0
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static PageUID FromRaw(long id) => new(id);
+        public static PageUID FromRaw(long id)
+        {
+            // Отрицательное значение не может быть валидным PageUID → сломанные данные.
+            if (id < 0)
+                Debug.LogError($"[PageUID] broken id: отрицательное значение 0x{id:X16} — валидный PageUID всегда положителен (0 = None). Перепутано с Popup Uid?");
+            return new(id);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsEmpty() => Id == 0;
@@ -55,7 +60,7 @@ namespace App.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static long Hash(string key)
         {
-            if (string.IsNullOrEmpty(key)) return 0;   // пустая/null → None
+            if (string.IsNullOrEmpty(key)) return 0;   // пустая/null → None (невалид)
             unchecked
             {
                 ulong h = 14695981039346656037UL;
@@ -64,6 +69,8 @@ namespace App.Core
                     h ^= key[i];
                     h *= 1099511628211UL;
                 }
+                h &= 0x7FFFFFFFFFFFFFFFUL;   // сбрасываем знаковый бит → значение всегда > 0
+                if (h == 0) h = 1;           // страховка от коллизии с None (0)
                 return (long)h;
             }
         }

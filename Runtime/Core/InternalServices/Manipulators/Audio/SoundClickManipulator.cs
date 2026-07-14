@@ -1,22 +1,21 @@
-﻿
-using App.Abstractions;
+﻿using App.Abstractions;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace App.UIToolkit.Manipulators
+namespace AppCore.Runtime.Core.InternalServices.Manipulators.Audio
 {
     public class SoundClickManipulator : Manipulator
     {
-        public SoundClickManipulator(SoundAdapter soundAdapter, UISoundLibrary library)
+        public SoundClickManipulator(SoundAdapter soundAdapter, AudioClip[] soundClips)
         {
             _soundAdapter = soundAdapter;
-            _library = library;
-            _isValid = _soundAdapter != null && _library != null;
+            _soundClips = soundClips;
+            
+            Debug.Log($"SoundClickManipulator created!!");
         }
         
         private readonly SoundAdapter _soundAdapter;
-        private readonly UISoundLibrary _library;
-        private readonly bool _isValid;
+        private readonly AudioClip[] _soundClips;
         
         private bool _pointerDown;
 
@@ -49,27 +48,7 @@ namespace App.UIToolkit.Manipulators
 
         private void PlaySound()
         {
-            if (!_isValid) return;
-
-            AudioClip clip = null;
-            var found = false;
-
-            foreach (var match in _library.matches)
-            {
-                if (target.ClassListContains(match.className))
-                {
-                    _soundAdapter.TryGet(match.sound, out clip);
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) _soundAdapter.TryGet(_library.defaultButton, out clip);
-
-            if (clip != null)
-            {
-                _soundAdapter.PlayUIShot(clip);
-            }
+            foreach (var audioClip in _soundClips) _soundAdapter.PlayUIShot(audioClip);
         }
     }
 }

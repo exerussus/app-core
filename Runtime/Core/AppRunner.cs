@@ -5,13 +5,12 @@ using System.Threading;
 using App.Abstractions;
 using App.Services.Navigator;
 using App.Core;
-using App.UIToolkit.Manipulators;
+using AppCore.Runtime.Core.InternalServices.Manipulators.Audio;
+using AppCore.Runtime.Core.InternalServices.Manipulators.Signal;
 using AppCore.Runtime.Core.Models;
 using Cysharp.Threading.Tasks;
 using Exerussus.DI;
 using log4net.Core;
-using Sirenix.Utilities;
-using UnityEditor.SearchService;
 using UnityEngine;
 using UnityEngine.UIElements;
 using AppPopup = App.Core.AppPopup;
@@ -37,22 +36,29 @@ namespace App
     /// складываются в потокобезопасную очередь и выполняются в <see cref="Update"/>.
     /// </para>
     /// </remarks>
+    [RequireComponent(typeof(UIDocument))]
     public class AppRunner : MonoBehaviour
     {
         // ─── Inspector fields ────────────────────────────────────────────────
 
+        [Tooltip("Настройки навигации (PageUID/PopupUID и их генерация). ОБЯЗАТЕЛЕН: без него AppRunner не стартует.")]
         [SerializeField] private NavigationSetting navigationSetting;
+
+        [Tooltip("Реестр внешних (проектных) сервисов приложения. Необязателен: если пуст, поднимаются только внутренние сервисы.")]
         [SerializeField] private AppServiceRegister appServiceRegister;
+
+        [Tooltip("Адаптер UI-звуков. Необязателен: если не задан, в контейнер зависимостей не регистрируется, а страницы работают без звука.")]
         [SerializeField] private SoundAdapter soundAdapter;
 
-        /// <summary>
-        /// Объекты, которые будут зарегистрированы в контейнере зависимостей как общие сервисы.
-        /// Если объект реализует <see cref="IInitializable"/>, его метод
-        /// <see cref="IInitializable.Initialize"/> будет вызван сразу после регистрации.
-        /// </summary>
-        [SerializeField] private Object[] sharedObjects;
+        [Tooltip("Адаптер ввода. Необязателен: если не задан, в контейнер зависимостей не регистрируется.")]
+        [SerializeField] private InputAdapter inputAdapter;
 
-        /// <summary>Экран загрузки, отображаемый при переходах между страницами.</summary>
+        /// <summary>
+        /// Экран загрузки, отображаемый при переходах между страницами.
+        /// Поле необязательное: если экран не назначен (<see cref="_hasScreen"/> = <c>false</c>),
+        /// вся логика показа/скрытия экрана превращается в no-op, а приложение работает без него.
+        /// </summary>
+        [Tooltip("Экран загрузки для переходов между страницами. НЕОБЯЗАТЕЛЕН: если поле пустое, весь код показа/скрытия экрана пропускается (no-op), приложение работает как есть.")]
         [SerializeField] private LoadingScreen screen;
 
         /// <summary>
@@ -60,8 +66,20 @@ namespace App
         /// вызывается перед инициализацией сервисов, а <see cref="AppBootstrapper.PostInitialize"/>
         /// — после. Поле может быть <c>null</c>.
         /// </summary>
+        [Tooltip("Опциональный бутстраппер: PreInitialize вызывается до инициализации сервисов, PostInitialize — после. Можно оставить пустым.")]
         [SerializeField] private AppBootstrapper bootstrapper;
-
+        
+        [Tooltip("Опциональная библиотека звуков: при назначении реализует проигрыш звук на страницах через uss классы. Можно оставить пустым.")]
+        [SerializeField] private UISoundLibrary uiSoundLibrary;
+        
+        /// <summary>
+        /// Объекты, которые будут зарегистрированы в контейнере зависимостей как общие сервисы.
+        /// Если объект реализует <see cref="IInitializable"/>, его метод
+        /// <see cref="IInitializable.Initialize"/> будет вызван сразу после регистрации.
+        /// </summary>
+        [Tooltip("Общие объекты, регистрируемые в контейнере зависимостей как сервисы. Необязателен: можно оставить пустым.")]
+        [SerializeField] private Object[] sharedObjects;
+        
         // ─── Private state ───────────────────────────────────────────────────
 
         /// <summary>
@@ -85,6 +103,8 @@ namespace App
         private IAppServiceUpdate[] _updatableServices;
         private IAppService[] _services;
 
+        internal IAppManipulatorBuilder[] _appManipulatorBuilders;
+        
         /// <summary>
         /// Страница, переход на которую отложен на время текущей навигации.
         /// Заполняется через <see cref="SwitchToPage"/> с <c>ignoreIfBusy = false</c>
@@ -118,12 +138,21 @@ namespace App
         /// Управляется через <see cref="SetForceScreen"/>.
         /// </summary>
         private bool _isForceScreen;
+        
+        /// <summary>
+        /// Есть ли у раннера экран загрузки. Вычисляется один раз в <see cref="Awake"/>
+        /// как <c>screen != null</c>. Если экран не назначен в инспекторе — весь код
+        /// показа/скрытия экрана становится no-op, а приложение продолжает работать без него.
+        /// </summary>
+        private bool _hasScreen;
 
         /// <summary>
         /// Флаг, блокирующий одновременное выполнение нескольких переходов между страницами.
         /// Устанавливается в <c>true</c> на время асинхронных операций навигации.
         /// </summary>
         private bool _isChangingPage;
+
+        private readonly PayloadBuilder _payloadBuilder = new();
 
         /// <summary>
         /// Стек открытых попапов. Верхний элемент — текущий активный попап,
@@ -166,6 +195,10 @@ namespace App
 
         // ─── Events ──────────────────────────────────────────────────────────
         
+        /// <summary>
+        /// Вызывается один раз при первом монтировании страницы в дерево UI:
+        /// передаёт её <see cref="PageUID"/> и корневой <see cref="VisualElement"/>.
+        /// </summary>
         public event Action<PageUID, VisualElement> OnPageMounted;
         
         /// <summary>
@@ -177,6 +210,12 @@ namespace App
         /// не прерывая вызов остальных подписчиков.
         /// </remarks>
         public event Action<(PageUID prev, PageUID current)> OnPageChanged;
+
+        /// <summary>
+        /// Дополнительное событие смены страницы, вызываемое сразу после <see cref="OnPageChanged"/>
+        /// в том же кадре и в главном потоке. Удобно, когда нужен порядок «сначала базовые
+        /// подписчики, затем пост-обработчики».
+        /// </summary>
         public event Action<(PageUID prev, PageUID current)> OnPagePostChanged;
 
         /// <summary>
@@ -253,8 +292,18 @@ namespace App
 
         private void Awake()
         {
+            if (navigationSetting == null)
+            {
+                Debug.LogError($"Navigation settings is null. Please, set NavigationSetting asset.");
+                return;
+            }
+
             _mainThreadId = Thread.CurrentThread.ManagedThreadId;
 
+            // Экран загрузки опционален: фиксируем его наличие один раз.
+            // Если поле пустое — весь код показа/скрытия экрана станет no-op.
+            _hasScreen = screen != null;
+            
             SetupUiLayers();
             
             if (navigationSetting != null) NavigationLink.Initialize(navigationSetting);
@@ -264,10 +313,20 @@ namespace App
             _container = new();
             _container.Add(this);
             _container.Add(_container);
+
+            if (soundAdapter != null) _container.Add(typeof(SoundAdapter), soundAdapter);
+            if (uiSoundLibrary != null) _container.Add(uiSoundLibrary);
+            if (inputAdapter != null) _container.Add(typeof(InputAdapter), inputAdapter);
             
             allPages = GetComponentsInChildren<AppPage>();
             allPopups = GetComponentsInChildren<AppPopup>();
 
+            if (allPages.Length == 0)
+            {
+                Debug.LogError($"App Runner has no child pages. Assign at least one page below it in the hierarchy for it to work.");
+                return;
+            }
+            
             _defaultPage = allPages[0];
 
             foreach (var page in allPages) page.gameObject.SetActive(false);
@@ -399,8 +458,9 @@ namespace App
 
         private void StartCoverScreenStep()
         {
-            // Первый показ — мгновенный (без фейда).
-            RunAsyncStep(token => screen.Show(_loadingScreen, true));
+            // Первый показ — мгновенный (без фейда). Если экран не назначен, ShowScreen вернёт
+            // завершённую задачу, и шаг просто мгновенно считается выполненным.
+            RunAsyncStep(token => ShowScreen(true));
         }
 
         private void StartPreBootstrapStep()
@@ -486,7 +546,7 @@ namespace App
         /// </summary>
         private void InitializeCoreSync()
         {
-            if (!sharedObjects.IsNullOrEmpty())
+            if (sharedObjects is { Length: >0 })
             {
                 foreach (var sharedObject in sharedObjects) _container.Add(sharedObject);
             }
@@ -519,6 +579,7 @@ namespace App
             }
             
             _updatableServices = _services.OfType<IAppServiceUpdate>().ToArray();
+            _appManipulatorBuilders = _services.OfType<IAppManipulatorBuilder>().ToArray();
             _hasUpdatable = _updatableServices.Length > 0;
 
             foreach (var service in _services) _container.Add(service);
@@ -527,14 +588,8 @@ namespace App
             foreach (var service in _services) _container.TryInjectFields(service);
             foreach (var service in _services) service.Initialize();
 
-            var defaultUiSoundLibrary = _container.Get<UISoundLibrary>();
-            foreach (var page in allPages)
-            {
-                page.gameObject.SetActive(false);
-                page.DefaultSoundLibrary = defaultUiSoundLibrary;
-                page.SoundAdapter = soundAdapter;
-            }
-
+            foreach (var page in allPages) page.gameObject.SetActive(false);
+            foreach (var page in allPages) page.AppRunner = this;
             foreach (var page in allPages) page.Mount(_pagesLayer);
             foreach (var page in allPages) page.PreInitialize();
             foreach (var popup in allPopups) popup.PreInitialize();
@@ -610,8 +665,37 @@ namespace App
             }
         }
 
+        // ─── Loading screen (опционален) ─────────────────────────────────────
+
+        /// <summary>
+        /// Виден ли сейчас экран загрузки. Всегда <c>false</c>, если экран не назначен
+        /// (см. <see cref="_hasScreen"/>).
+        /// </summary>
+        private bool IsScreenVisible => _hasScreen && screen.IsVisible;
+
+        /// <summary>
+        /// Показывает экран загрузки, если он назначен; иначе — no-op
+        /// (возвращает <see cref="UniTask.CompletedTask"/>).
+        /// </summary>
+        /// <param name="instant">Если <c>true</c> — без анимации появления.</param>
+        private UniTask ShowScreen(bool instant = false)
+            => _hasScreen ? screen.Show(_loadingScreen, instant) : UniTask.CompletedTask;
+
+        /// <summary>
+        /// Скрывает экран загрузки, если он назначен; иначе — no-op
+        /// (возвращает <see cref="UniTask.CompletedTask"/>).
+        /// </summary>
+        private UniTask HideScreen()
+            => _hasScreen ? screen.Hide() : UniTask.CompletedTask;
+
         // ─── Public API ──────────────────────────────────────────────────────
         
+        /// <summary>
+        /// Назначает страницу по умолчанию — ту, что открывается при старте и через
+        /// <see cref="SwitchToDefaultPage"/>.
+        /// </summary>
+        /// <remarks>Если страница с указанным <paramref name="pageUid"/> не найдена — вызов игнорируется с ошибкой в лог.</remarks>
+        /// <param name="pageUid">Идентификатор страницы, которая станет стартовой.</param>
         public void SetDefaultPage(PageUID pageUid)
         {
             if (!_pagesDict.TryGetValue(pageUid, out var page))
@@ -623,9 +707,21 @@ namespace App
             _defaultPage = page;
         }
         
+        /// <summary>
+        /// Принудительно удерживает экран загрузки поднятым независимо от навигации.
+        /// </summary>
+        /// <remarks>
+        /// Пока включено — экран не скрывается по завершении переходов между страницами.
+        /// Если экран загрузки не назначен (см. <see cref="_hasScreen"/>) — метод лишь
+        /// запоминает флаг и ничего не показывает.
+        /// </remarks>
+        /// <param name="isEnabled"><c>true</c> — удерживать экран; <c>false</c> — разрешить его скрытие.</param>
         public void SetForceScreen(bool isEnabled)
         {
             _isForceScreen = isEnabled;
+
+            // Экран опционален: держать/скрывать нечего.
+            if (!_hasScreen) return;
 
             if (isEnabled)
             {
@@ -639,6 +735,12 @@ namespace App
             }
         }
         
+        /// <summary>
+        /// Закрывает текущий верхний попап (если есть) и открывает указанный,
+        /// помещая его на вершину стека.
+        /// </summary>
+        /// <remarks>Если попап с указанным <paramref name="popupUid"/> не найден — вызов игнорируется с ошибкой в лог.</remarks>
+        /// <param name="popupUid">Идентификатор попапа, который нужно открыть.</param>
         public void SwitchPopup(PopupUID popupUid)
         {
             if (!_popupsDict.TryGetValue(popupUid, out var popup))
@@ -650,16 +752,24 @@ namespace App
             SwitchPopupInternal(popup).Forget(Debug.LogException);
         }
 
+        /// <summary>Проверяет, является ли указанная страница текущей активной.</summary>
+        /// <param name="pageUid">Идентификатор проверяемой страницы.</param>
+        /// <returns><c>true</c>, если страница сейчас активна.</returns>
         public bool IsActive(PageUID pageUid)
         {
             return _currentPage != null && _currentPage.PageUid == pageUid;
         }
 
+        /// <summary>Проверяет, является ли текущая активная страница страницей по умолчанию.</summary>
+        /// <returns><c>true</c>, если активна дефолтная страница.</returns>
         public bool IsActiveDefault()
         {
             return _currentPage != null && _currentPage == _defaultPage;
         }
 
+        /// <summary>Проверяет, открыт ли указанный попап (находится ли он в стеке).</summary>
+        /// <param name="popupType">Идентификатор проверяемого попапа.</param>
+        /// <returns><c>true</c>, если попап присутствует в стеке открытых.</returns>
         public bool IsActive(PopupUID popupType)
         {
             foreach (var popup in _popupStack)
@@ -668,11 +778,16 @@ namespace App
             return false;
         }
 
+        /// <summary>Проверяет, открыт ли хотя бы один попап.</summary>
+        /// <returns><c>true</c>, если стек попапов не пуст.</returns>
         public bool IsActiveAnyPopup()
         {
             return _popupStack.Count > 0;
         }
 
+        /// <summary>Открывает попап поверх текущего стека; новый попап получает фокус.</summary>
+        /// <remarks>Если попап с указанным <paramref name="popupType"/> не найден — вызов игнорируется с ошибкой в лог.</remarks>
+        /// <param name="popupType">Идентификатор попапа для открытия.</param>
         public void OpenPopup(PopupUID popupType)
         {
             if (!_popupsDict.TryGetValue(popupType, out var popup))
@@ -684,6 +799,8 @@ namespace App
             OpenPopupInternal(popup).Forget(Debug.LogException);
         }
 
+        /// <summary>Закрывает верхний попап в стеке; фокус возвращается предыдущему попапу, если он есть.</summary>
+        /// <remarks>Если стек попапов пуст — вызов игнорируется.</remarks>
         public void CloseActivePopup()
         {
             if (_popupStack.Count == 0) return;
@@ -691,6 +808,13 @@ namespace App
             CloseActivePopupInternal().Forget(Debug.LogException);
         }
 
+        /// <summary>Возвращается на предыдущую страницу из стека переходов.</summary>
+        /// <remarks>Если стек переходов пуст — вызов игнорируется.</remarks>
+        /// <param name="withScreen">Показывать ли экран загрузки на время перехода (при отсутствии экрана — игнорируется).</param>
+        /// <param name="ignoreIfBusy">
+        /// Если <c>true</c> — при уже идущей навигации запрос отбрасывается; если <c>false</c> —
+        /// откладывается и проигрывается каскадом после текущего перехода.
+        /// </param>
         public void SwitchToPrevPage(bool withScreen = false, bool ignoreIfBusy = true)
         {
             if (_pageTransitionStack.Count < 1) return;
@@ -698,6 +822,16 @@ namespace App
             SwitchToPage(pageUid, withScreen, ignoreIfBusy);
         }
         
+        /// <summary>Выполняет переход на указанную страницу.</summary>
+        /// <remarks>
+        /// Если навигация уже идёт, поведение зависит от <paramref name="ignoreIfBusy"/>:
+        /// при <c>true</c> запрос отбрасывается, при <c>false</c> — откладывается и подхватывается
+        /// каскадом сразу после завершения текущего перехода (без скрытия экрана между ними).
+        /// Если страница с указанным <paramref name="pageUid"/> не найдена — вызов игнорируется с ошибкой в лог.
+        /// </remarks>
+        /// <param name="pageUid">Идентификатор целевой страницы.</param>
+        /// <param name="withScreen">Показывать ли экран загрузки на время перехода (при отсутствии экрана — игнорируется).</param>
+        /// <param name="ignoreIfBusy">Отбрасывать (<c>true</c>) или откладывать (<c>false</c>) запрос при идущей навигации.</param>
         public void SwitchToPage(PageUID pageUid, bool withScreen = false, bool ignoreIfBusy = true)
         {
             if (!_pagesDict.TryGetValue(pageUid, out var page))
@@ -721,9 +855,9 @@ namespace App
                 _hasPendingPage = true;
 
                 // Если новый запрос со скрином, а экран ещё не поднят — поднимаем его немедленно,
-                // не дожидаясь конца текущей навигации.
-                if (withScreen && !screen.IsVisible)
-                    screen.Show(_loadingScreen).Forget(Debug.LogException);
+                // не дожидаясь конца текущей навигации. Без экрана ShowScreen — no-op.
+                if (withScreen && !IsScreenVisible)
+                    ShowScreen().Forget(Debug.LogException);
 
                 return;
             }
@@ -731,11 +865,39 @@ namespace App
             NavigateTo(page, withScreen).Forget(Debug.LogException);
         }
 
+        /// <summary>Переходит на страницу по умолчанию (см. <see cref="SetDefaultPage"/>).</summary>
+        /// <param name="withScreen">Показывать ли экран загрузки на время перехода (при отсутствии экрана — игнорируется).</param>
+        /// <param name="ignoreIfBusy">Отбрасывать (<c>true</c>) или откладывать (<c>false</c>) запрос при идущей навигации.</param>
         public void SwitchToDefaultPage(bool withScreen = false, bool ignoreIfBusy = true)
         {
             SwitchToPage(_defaultPage.PageUid, withScreen, ignoreIfBusy);
         }
 
+        // Internal
+
+        internal void RegisterAppView(IAppView appView)
+        {
+            var soundLibrary = appView.OverrideSoundLibrary == null ? uiSoundLibrary : appView.OverrideSoundLibrary;
+            
+            if (soundLibrary != null) appView.Root.Query<Button>().ForEach(btn =>
+            {
+                if (_appManipulatorBuilders is { Length: > 0 })
+                {
+                    foreach (var builder in _appManipulatorBuilders)
+                    {
+                        builder.OnBuildButtonManipulator(appView, btn, _payloadBuilder);
+                    }
+                }
+                
+                if (btn.ClassListContains("signal-button")) btn.AddManipulator(new SignalClickManipulator(_payloadBuilder.End()));
+            });
+            
+            foreach (var builder in _appManipulatorBuilders)
+            {
+                builder.OnBuildManipulators(appView);
+            }
+        }
+        
         // ─── Main-thread marshaling ──────────────────────────────────────────
 
         /// <summary>
@@ -935,7 +1097,7 @@ namespace App
         /// </remarks>
         private async UniTask SwitchWithFakeLoading(PageUID pageUid, float duration)
         {
-            if (!screen.gameObject.activeSelf) await screen.Show(_loadingScreen);
+            if (_hasScreen && !screen.gameObject.activeSelf) await screen.Show(_loadingScreen);
             await UniTask.Delay(TimeSpan.FromSeconds(duration));
             SwitchToPage(pageUid);
         }
@@ -1179,9 +1341,10 @@ namespace App
                         // Экран поднимаем только если он ещё не виден; в каскаде он уже
                         // может быть поднят (либо предыдущей итерацией, либо немедленным
                         // Show из SwitchToPage при отложенном запросе со скрином).
-                        if (useScreen && !screen.IsVisible)
+                        // Гард по _hasScreen важен: без экрана незачем выдерживать паузу 1с.
+                        if (_hasScreen && useScreen && !IsScreenVisible)
                         {
-                            await screen.Show(_loadingScreen);
+                            await ShowScreen();
                             await UniTask.Delay(TimeSpan.FromSeconds(1f));
                         }
 
@@ -1228,8 +1391,8 @@ namespace App
                     }
 
                     // Отложенных запросов нет — пытаемся скрыть экран...
-                    if (!_isForceScreen && screen.IsVisible)
-                        await screen.Hide().SuppressCancellationThrow();
+                    if (!_isForceScreen && IsScreenVisible)
+                        await HideScreen().SuppressCancellationThrow();
 
                     // ...но во время await Hide мог прилететь новый отложенный запрос.
                     // Если так — снова запускаем итерацию.
@@ -1246,8 +1409,8 @@ namespace App
             finally
             {
                 _isChangingPage = false;
-                if (!_isForceScreen && screen.IsVisible)
-                    await screen.Hide().SuppressCancellationThrow();
+                if (!_isForceScreen && IsScreenVisible)
+                    await HideScreen().SuppressCancellationThrow();
             }
         }
     }
