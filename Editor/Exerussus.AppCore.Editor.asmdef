@@ -1,0 +1,18 @@
+{
+    "name": "Exerussus.AppCore.Editor",
+    "rootNamespace": "Exerussus.AppCore.Editor",
+    "references": [
+        "GUID:fc400ceb3ef6b8948868273b707409c8"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

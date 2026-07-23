@@ -1,0 +1,305 @@
+﻿using System;
+using System.Threading;
+using Cysharp.Threading.Tasks;
+using Exerussus.DI;
+using UnityEngine;
+using UnityEngine.Serialization;
+using UnityEngine.UIElements;
+using Exerussus.AppCore.Boot;
+using Exerussus.AppCore.Navigation;
+using Exerussus.AppCore.Views;
+using Exerussus.AppCore.Screens;
+using Exerussus.AppCore.Services;
+using Exerussus.AppCore.Audio;
+using Exerussus.AppCore.Input;
+using Exerussus.AppCore.Layout;
+using Object = UnityEngine.Object;
+
+namespace Exerussus.AppCore
+{
+    /// <summary>
+    /// Корневой раннер приложения.
+    /// </summary>
+    /// <remarks>
+    /// Отвечает за три зоны ответственности:
+    /// <list type="number">
+    ///   <item><description>Инициализация всех стартовых систем и сборка контейнера зависимостей (<see cref="Awake"/>).</description></item>
+    ///   <item><description>Навигация между страницами (<see cref="AppPage"/>) с поддержкой экрана загрузки.</description></item>
+    ///   <item><description>Управление стеком попапов (<see cref="AppPopup"/>).</description></item>
+    /// </list>
+    /// Все переходы являются асинхронными и защищены флагами блокировки,
+    /// чтобы исключить одновременные конкурирующие переходы.
+    /// <para>
+    /// Для безопасного вызова событий из произвольного потока используется встроенный
+    /// диспатчер главного потока (см. <see cref="RunOnMainThreadAsync"/>): действия
+    /// складываются в потокобезопасную очередь и выполняются в <see cref="Update"/>.
+    /// </para>
+    /// </remarks>
+    [RequireComponent(typeof(UIDocument))]
+    public partial class AppRunner : MonoBehaviour
+    {
+        [Tooltip("Настройки навигации (PageId/PopupId и их генерация). ОБЯЗАТЕЛЕН: без него AppRunner не стартует.")]
+        [FormerlySerializedAs("navigationSetting")]
+        [SerializeField] private NavigationSettings navigationSettings;
+
+        [Tooltip("Реестр внешних (проектных) сервисов приложения. Необязателен: если пуст, поднимаются только внутренние сервисы.")]
+        [FormerlySerializedAs("appServiceRegister")]
+        [SerializeField] private AppServiceRegistry appServiceRegistry;
+
+        [Tooltip("Адаптер UI-звуков. Необязателен: если не задан, в контейнер зависимостей не регистрируется, а страницы работают без звука.")]
+        [SerializeField] private SoundAdapter soundAdapter;
+
+        [Tooltip("Адаптер ввода. Необязателен: если не задан, в контейнер зависимостей не регистрируется.")]
+        [SerializeField] private InputAdapter inputAdapter;
+
+        /// <summary>
+        /// Экран загрузки, отображаемый при переходах между страницами.
+        /// Поле необязательное: если экран не назначен (<see cref="_hasScreen"/> = <c>false</c>),
+        /// вся логика показа/скрытия экрана превращается в no-op, а приложение работает без него.
+        /// </summary>
+        [Tooltip("Экран загрузки для переходов между страницами. НЕОБЯЗАТЕЛЕН: если поле пустое, весь код показа/скрытия экрана пропускается (no-op), приложение работает как есть.")]
+        [FormerlySerializedAs("screen")]
+        [SerializeField] private LoadingScreen loadingScreen;
+
+        [Tooltip("Скрин закрываемой ошибки. Самодостаточен, доступен на любом этапе бута. НЕОБЯЗАТЕЛЕН.")]
+        [SerializeField] private ErrorScreen errorScreen;
+
+        [Tooltip("Скрин критического сбоя (reboot/quit). Показывается ядром на Failed. НЕОБЯЗАТЕЛЕН: без него фолбэком служит код-оверлей самого скрина, а если и он не назначен — голый оверлей на слое скринов.")]
+        [SerializeField] private CriticalScreen criticalScreen;
+
+        [Tooltip("Таймаут одного асинхронного шага бута в секундах (watchdog). 0 = выключено. По истечении — Failed с причиной «шаг завис».")]
+        [SerializeField] private float stepTimeoutSeconds;
+
+        [Tooltip("Показывать ли кнопку перезапуска на критическом скрине при падении бута.")]
+        [SerializeField] private bool allowRebootOnFail = true;
+
+        /// <summary>
+        /// Опциональный бутстраппер. Если задан — его <see cref="AppBootstrapper.PreInitialize"/>
+        /// вызывается перед инициализацией сервисов, а <see cref="AppBootstrapper.PostInitialize"/>
+        /// — после. Поле может быть <c>null</c>.
+        /// </summary>
+        [Tooltip("Опциональный бутстраппер: PreInitialize вызывается до инициализации сервисов, PostInitialize — после. Можно оставить пустым.")]
+        [SerializeField] private AppBootstrapper bootstrapper;
+
+        
+        [Tooltip("Опциональная библиотека звуков: при назначении реализует проигрыш звук на страницах через uss классы. Можно оставить пустым.")]
+        [SerializeField] private UISoundLibrary uiSoundLibrary;
+
+        
+        /// <summary>
+        /// Объекты, которые будут зарегистрированы в контейнере зависимостей как общие сервисы.
+        /// Если объект реализует <see cref="IInitializable"/>, его метод
+        /// <see cref="IInitializable.Initialize"/> будет вызван сразу после регистрации.
+        /// </summary>
+        [Tooltip("Общие объекты, регистрируемые в контейнере зависимостей как сервисы. Необязателен: можно оставить пустым.")]
+        [SerializeField] private Object[] sharedObjects;
+
+        /// <summary>
+        /// Все страницы приложения. Первый элемент массива считается страницей по умолчанию
+        /// и открывается автоматически при старте.
+        /// </summary>
+        private AppPage[] allPages;
+
+        /// <summary>Все попапы приложения, доступные для открытия через <see cref="OpenPopup"/> и <see cref="SwitchPopup"/>.</summary>
+        private AppPopup[] allPopups;
+
+        private UIDocument _document;
+
+        /// <summary>Корень панели UIDocument. Используется как проба панели при расчёте безопасной зоны.</summary>
+        private VisualElement _root;
+
+        /// <summary>Слой скринов: поверх страниц и попапов. Loading/Error/Critical живут здесь.</summary>
+        private VisualElement _screensLayer;
+
+        private VisualElement _pagesLayer;
+
+        private VisualElement _popupsLayer;
+
+        /// <summary>Контейнер инверсии зависимостей, хранящий все зарегистрированные сервисы.</summary>
+        private DependenciesContainer _container;
+
+        private bool _hasUpdatable;
+
+        private IAppServiceUpdate[] _updatableServices;
+
+        private IAppService[] _services;
+
+        /// <summary>
+        /// Флаг завершения работы компонента. Устанавливается в <see cref="OnDestroy"/>,
+        /// после чего постановка новых действий в очередь главного потока становится бессмысленной
+        /// и приводит к немедленному завершению ожидающих <see cref="UniTask"/> с отменой.
+        /// </summary>
+        private bool _isDestroyed;
+
+        private void Awake()
+        {
+            if (navigationSettings == null)
+            {
+                Debug.LogError($"Navigation settings is null. Please, set NavigationSettings asset.");
+                return;
+            }
+
+            _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+
+            // Экран загрузки и скрины опциональны: фиксируем наличие один раз.
+            // Если поле пустое — соответствующий код становится no-op.
+            _hasScreen = loadingScreen != null;
+            _hasErrorScreen = errorScreen != null;
+            _hasCriticalScreen = criticalScreen != null;
+
+            // Кэш расчёта статический и переживает перезагрузку сцены (и Play Mode без Domain
+            // Reload). Сбрасываем, чтобы отступы пересчитались под панель именно этой сцены.
+            SafeAreaLayout.Reset();
+            
+            SetupUiLayers();
+            
+            if (navigationSettings != null) NavigationLink.Initialize(navigationSettings);
+            
+            _bootCts = new CancellationTokenSource();
+            
+            _container = new();
+            _container.Add(this);
+            _container.Add(_container);
+
+            if (soundAdapter != null) _container.Add(typeof(SoundAdapter), soundAdapter);
+            if (uiSoundLibrary != null) _container.Add(uiSoundLibrary);
+            if (inputAdapter != null) _container.Add(typeof(InputAdapter), inputAdapter);
+            
+            allPages = GetComponentsInChildren<AppPage>();
+            allPopups = GetComponentsInChildren<AppPopup>();
+
+            if (allPages.Length == 0)
+            {
+                Debug.LogError($"App Runner has no child pages. Assign at least one page below it in the hierarchy for it to work.");
+                return;
+            }
+            
+            _defaultPage = allPages[0];
+
+            foreach (var page in allPages) page.gameObject.SetActive(false);
+            foreach (var popup in allPopups) popup.gameObject.SetActive(false);
+            
+            // Стартуем машину. Дальше всё движется через Update.
+            TransitionTo(BootState.CoveringScreen);
+        }
+
+        /// <summary>Создаёт и монтирует UI-слои. Чисто синхронная подготовка до старта машины.</summary>
+        private void SetupUiLayers()
+        {
+            _document = GetComponent<UIDocument>();
+            _root = _document.rootVisualElement;
+            var root = _root;
+
+            _screensLayer = new VisualElement { name = "screensLayer" };
+            _screensLayer.style.position = Position.Absolute;
+            _screensLayer.style.left = 0;
+            _screensLayer.style.right = 0;
+            _screensLayer.style.top = 0;
+            _screensLayer.style.bottom = 0;
+            _screensLayer.style.flexGrow = 1;
+            _screensLayer.pickingMode = PickingMode.Ignore;
+
+            _pagesLayer = new VisualElement { name = "pagesLayer" };
+            _pagesLayer.style.position = Position.Absolute;
+            _pagesLayer.style.left = 0;
+            _pagesLayer.style.right = 0;
+            _pagesLayer.style.top = 0;
+            _pagesLayer.style.bottom = 0;
+            _pagesLayer.style.flexGrow = 1;
+            _pagesLayer.pickingMode = PickingMode.Ignore;
+
+            _popupsLayer = new VisualElement { name = "popupsLayer" };
+            _popupsLayer.style.position = Position.Absolute;
+            _popupsLayer.style.left = _popupsLayer.style.right = 0;
+            _popupsLayer.style.top = _popupsLayer.style.bottom = 0;
+            _popupsLayer.pickingMode = PickingMode.Ignore;
+
+            root.Add(_pagesLayer);
+            root.Add(_popupsLayer);
+            root.Add(_screensLayer);
+
+            // Слой скринов — самый верхний. Все скрины (Loading/Error/Critical) живут здесь.
+            // Приоритет между ними держим порядком BringToFront при показе: Loading < Error < Critical.
+            _screensLayer.BringToFront();
+
+            // Монтируем все скрины сразу: их безопасная зона должна быть найдена и закэширована
+            // до старта boot-машины, а не при первом показе.
+            if (_hasScreen)
+            {
+                loadingScreen.Mount(_screensLayer);
+                RegisterSafeArea(loadingScreen.SafeArea);
+            }
+
+            if (_hasErrorScreen)
+            {
+                errorScreen.Mount(_screensLayer);
+                RegisterSafeArea(errorScreen.SafeArea);
+            }
+
+            if (_hasCriticalScreen)
+            {
+                criticalScreen.Mount(_screensLayer);
+                RegisterSafeArea(criticalScreen.SafeArea);
+            }
+        }
+
+        // /// <summary>
+        // /// Запускает переход на страницу по умолчанию с имитацией экрана загрузки длительностью 1 секунду.
+        // /// </summary>
+        // private void Start()
+        // {
+        //     SwitchWithFakeLoading(_defaultPage.PageType, 1f).Forget(Debug.LogException);
+        // }
+
+        /// <summary>
+        /// Очищает контекст приложения при уничтожении объекта в редакторе.
+        /// </summary>
+        /// <remarks>
+        /// Дополнительно отменяет все ожидающие операции в очереди главного потока,
+        /// чтобы привязанные к ним <see cref="UniTask"/> завершились с отменой,
+        /// а не зависли навсегда.
+        /// </remarks>
+        private void OnDestroy()
+        {
+            _isDestroyed = true;
+
+            if (_bootCts != null)
+            {
+                _bootCts.Cancel();
+                _bootCts.Dispose();
+                _bootCts = null;
+            }
+
+            DrainMainThreadQueueOnDestroy();
+
+            // снимаем ожидающих готовности, если бут не дошёл до Ready
+            if (!IsAppReady) _readySource.TrySetCanceled();
+
+            // teardown в обратном порядке инициализации: подписки/хендлы сервисов,
+            // созданных позже, гасятся раньше зависимых от них.
+            if (_services != null)
+                for (var i = _services.Length - 1; i >= 0; i--)
+                {
+                    try { _services[i].Destroy(); }
+                    catch (Exception e) { Debug.LogException(e); }
+                }
+        }
+
+        private void Update()
+        {
+            PumpMainThreadQueue();
+
+            // Безопасная зона обслуживается независимо от стадии бута: она нужна и экрану
+            // загрузки, и критическому скрину, то есть ещё до готовности приложения.
+            TickSafeArea();
+
+            TickBootStateMachine();
+
+            // Сервисы тикают только после полной инициализации.
+            if (_bootState != BootState.Ready) return;
+
+            if (!_hasUpdatable) return;
+            foreach (var updatableService in _updatableServices) updatableService.Update();
+        }
+    }
+}
