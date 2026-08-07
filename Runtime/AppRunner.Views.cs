@@ -14,24 +14,29 @@ namespace Exerussus.AppCore
 
         private readonly PayloadBuilder _payloadBuilder = new();
 
-        // Internal
+        /// <summary>
+        /// Навешивает манипуляторы на кнопки вью (страницы или попапа).
+        /// Вызывается один раз на вью — при первой активации страницы или первом монтировании попапа.
+        /// </summary>
         internal void RegisterAppView(IAppView appView)
         {
-            var soundLibrary = appView.OverrideSoundLibrary == null ? uiSoundLibrary : appView.OverrideSoundLibrary;
-            
-            if (soundLibrary != null) appView.Root.Query<Button>().ForEach(btn =>
+            // Проход по кнопкам не зависит от библиотеки звуков: тот же цикл строит навигационные
+            // манипуляторы. Решение «есть ли звук» принимает звуковой сервис внутри себя.
+            appView.Root.Query<Button>().ForEach(btn =>
             {
-                if (_appManipulatorBuilders is { Length: > 0 })
+                foreach (var builder in _appManipulatorBuilders)
                 {
-                    foreach (var builder in _appManipulatorBuilders)
-                    {
-                        builder.OnBuildButtonManipulator(appView, btn, _payloadBuilder);
-                    }
+                    builder.OnBuildButtonManipulator(appView, btn, _payloadBuilder);
                 }
-                
-                if (btn.ClassListContains("signal-button")) btn.AddManipulator(new SignalClickManipulator(_payloadBuilder.End()));
+
+                // Скоуп пейлоада закрываем на КАЖДОЙ кнопке, даже если её никто не пометил:
+                // иначе недозабранный пейлоад утёк бы в следующую кнопку и переписал ей цель.
+                var payload = _payloadBuilder.End();
+
+                if (btn.ClassListContains("signal-button")) btn.AddManipulator(new SignalClickManipulator(payload));
+                else if (payload.IsValid()) payload.Dispose();
             });
-            
+
             foreach (var builder in _appManipulatorBuilders)
             {
                 builder.OnBuildManipulators(appView);

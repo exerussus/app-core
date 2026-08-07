@@ -27,6 +27,9 @@ namespace Exerussus.AppCore
         /// <summary>Объект-замок для синхронизированного доступа к <see cref="_mainThreadQueue"/>.</summary>
         private readonly object _mainThreadQueueLock = new();
 
+        /// <summary>Буфер слива очереди. Переиспользуется, чтобы кадр с работой не аллоцировал.</summary>
+        private readonly List<Action> _mainThreadBuffer = new();
+
         /// <summary>
         /// Выполняет все накопленные в <see cref="_mainThreadQueue"/> действия.
         /// </summary>
@@ -42,25 +45,29 @@ namespace Exerussus.AppCore
             // Быстрая проверка без лока — типичный путь, когда очередь пуста.
             if (_mainThreadQueue.Count == 0) return;
 
-            Action[] snapshot;
+            // Сливаем в переиспользуемый буфер, а не в новый массив: очередь дёргается
+            // из фоновых потоков, и ToArray() на каждом кадре с работой давал бы мусор.
             lock (_mainThreadQueueLock)
             {
                 if (_mainThreadQueue.Count == 0) return;
-                snapshot = _mainThreadQueue.ToArray();
-                _mainThreadQueue.Clear();
+                while (_mainThreadQueue.Count > 0) _mainThreadBuffer.Add(_mainThreadQueue.Dequeue());
             }
 
-            for (var i = 0; i < snapshot.Length; i++)
+            // Выполняем вне лока: действие вправе поставить в очередь новое — оно уйдёт
+            // в следующий кадр, а не приведёт к рекурсивному захвату.
+            for (var i = 0; i < _mainThreadBuffer.Count; i++)
             {
                 try
                 {
-                    snapshot[i].Invoke();
+                    _mainThreadBuffer[i].Invoke();
                 }
                 catch (Exception e)
                 {
                     Debug.LogException(e);
                 }
             }
+
+            _mainThreadBuffer.Clear();
         }
 
         /// <summary>
@@ -70,25 +77,25 @@ namespace Exerussus.AppCore
         /// </summary>
         private void DrainMainThreadQueueOnDestroy()
         {
-            Action[] snapshot;
             lock (_mainThreadQueueLock)
             {
                 if (_mainThreadQueue.Count == 0) return;
-                snapshot = _mainThreadQueue.ToArray();
-                _mainThreadQueue.Clear();
+                while (_mainThreadQueue.Count > 0) _mainThreadBuffer.Add(_mainThreadQueue.Dequeue());
             }
 
-            for (var i = 0; i < snapshot.Length; i++)
+            for (var i = 0; i < _mainThreadBuffer.Count; i++)
             {
                 try
                 {
-                    snapshot[i].Invoke();
+                    _mainThreadBuffer[i].Invoke();
                 }
                 catch (Exception e)
                 {
                     Debug.LogException(e);
                 }
             }
+
+            _mainThreadBuffer.Clear();
         }
 
         /// <summary>

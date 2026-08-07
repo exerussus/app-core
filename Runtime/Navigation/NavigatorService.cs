@@ -32,17 +32,42 @@ namespace Exerussus.AppCore.Navigation
             }
         }
 
-        private void OnBackPressed()
+        /// <summary>Аппаратная кнопка «назад» (Android, Escape).</summary>
+        /// <remarks>
+        /// Без хука на странице ничего не делает: «назад» — это осознанное свойство экрана,
+        /// иначе системная кнопка начала бы выкидывать пользователя с корневых страниц.
+        /// Попап при этом закрывается всегда — он поверх всего и перехватывает жест первым.
+        /// </remarks>
+        private void OnBackPressed() => Back(fallbackToPrevPage: false);
+
+        /// <summary>
+        /// Единая семантика «назад» для аппаратной кнопки и для кнопки в вёрстке.
+        /// </summary>
+        /// <param name="fallbackToPrevPage">
+        /// Что делать, когда у страницы нет хука. Для кнопки в вёрстке — <c>true</c>:
+        /// сама её наличие и есть намерение. Для аппаратной кнопки — <c>false</c>.
+        /// </param>
+        private void Back(bool fallbackToPrevPage)
         {
+            // 1. Верхний попап перехватывает «назад» раньше страницы.
+            if (_appRunner.IsActiveAnyPopup())
+            {
+                _appRunner.CloseActivePopup();
+                return;
+            }
+
             if (_pageUid.IsEmpty()) return;
+
+            // 2. Явный хук страницы: либо конкретная цель, либо возврат по стеку.
             if (_backHooks.TryGetValue(_pageUid, out var backPageUid))
             {
-                if (backPageUid == PageId.None)
-                {
-                    _appRunner.SwitchToPrevPage();
-                }
+                if (backPageUid == PageId.None) _appRunner.SwitchToPrevPage();
                 else _appRunner.SwitchToPage(backPageUid);
+                return;
             }
+
+            // 3. Хука нет — решает вызывающая сторона.
+            if (fallbackToPrevPage) _appRunner.SwitchToPrevPage();
         }
 
         public UniTask Initialize(System.Threading.CancellationToken token)
@@ -102,14 +127,7 @@ namespace Exerussus.AppCore.Navigation
             {
                 if (value == 0)
                 {
-                    if (_appRunner.IsActiveAnyPopup())
-                    {
-                        _appRunner.CloseActivePopup();
-                    }
-                    else
-                    {
-                        _appRunner.SwitchToPrevPage();
-                    }
+                    Back(fallbackToPrevPage: true);
                 }
                 else if (value > 0)
                 {

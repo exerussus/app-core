@@ -78,6 +78,11 @@ namespace Exerussus.AppCore
         /// вызывается перед инициализацией сервисов, а <see cref="AppBootstrapper.PostInitialize"/>
         /// — после. Поле может быть <c>null</c>.
         /// </summary>
+        [Tooltip("Прогревать вёрстку всех страниц на старте. Выключено (по умолчанию) — страница " +
+                 "инстанцирует свой UXML при первом переходе на неё: быстрее старт и меньше памяти, " +
+                 "но первый переход чуть дороже.")]
+        [SerializeField] private bool prewarmPages;
+
         [Tooltip("Опциональный бутстраппер: PreInitialize вызывается до инициализации сервисов, PostInitialize — после. Можно оставить пустым.")]
         [SerializeField] private AppBootstrapper bootstrapper;
 

@@ -11,8 +11,11 @@ namespace Exerussus.AppCore.Navigation
         
         public static readonly long NavigateToKey = Payload.Uid("navigate-to");
 
-        public static IReadOnlyDictionary<string, PageId> LinksPages => _linksPages;
-        public static IReadOnlyDictionary<string, PopupId> LinksPopups => _linksPopups;
+        // Отдаём конкретный Dictionary, а не IReadOnlyDictionary: через интерфейс foreach
+        // боксит структурный энумератор, а эти словари обходятся на каждую кнопку каждой
+        // страницы. Тип internal, так что защита от записи здесь стоит дешевле аллокаций.
+        public static Dictionary<string, PageId> LinksPages => _linksPages;
+        public static Dictionary<string, PopupId> LinksPopups => _linksPopups;
 
         public static void Initialize(NavigationSettings navigationSettings)
         {
@@ -21,14 +24,21 @@ namespace Exerussus.AppCore.Navigation
 
             if (navigationSettings == null) return;
             
-            foreach (var entry in navigationSettings.Entries)
+            // Обход по индексу: Entries отдаётся как IReadOnlyList, и foreach по нему
+            // забоксил бы энумератор.
+            var entries = navigationSettings.Entries;
+
+            for (var i = 0; i < entries.Count; i++)
             {
+                var entry = entries[i];
                 if (!entry.Bound) continue;
                 if (string.IsNullOrEmpty(entry.ClassName)) continue;
 
-                // One-to-one is enforced by the editor; last write wins as a safety net.
-                if (entry.Kind == NavigationSettings.EntryKind.Page) _linksPages.Add(entry.ClassName, new PageId(entry.Page));
-                else if (entry.Kind == NavigationSettings.EntryKind.Popup) _linksPopups.Add(entry.ClassName, new PopupId(entry.Page));
+                // Один-к-одному гарантирует редактор. Здесь присваивание по индексатору,
+                // а не Add: дубликат класса — повод перезаписать, а не уронить приложение
+                // на старте (Add бросил бы исключение вопреки задуманной страховке).
+                if (entry.Kind == NavigationSettings.EntryKind.Page) _linksPages[entry.ClassName] = new PageId(entry.Page);
+                else if (entry.Kind == NavigationSettings.EntryKind.Popup) _linksPopups[entry.ClassName] = new PopupId(entry.Page);
             }
         }
         

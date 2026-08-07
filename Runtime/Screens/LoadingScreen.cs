@@ -103,7 +103,7 @@ namespace Exerussus.AppCore.Screens
             while (elapsed < fadeSeconds)
             {
                 if (_root == null) return;
-                elapsed += Time.deltaTime;
+                elapsed += Time.unscaledDeltaTime;   // экран загрузки обязан жить при timeScale = 0
                 _root.style.opacity = Mathf.Lerp(start, target, elapsed / fadeSeconds);
                 await UniTask.NextFrame();
             }

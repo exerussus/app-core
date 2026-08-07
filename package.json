@@ -1,6 +1,6 @@
 {
   "name": "com.exerussus.app-core",
-  "version": "2.0.0",
+  "version": "2.1.1",
   "displayName": "App-Core",
   "description": "Реализация app стартера.",
   "unity": "2020.3",

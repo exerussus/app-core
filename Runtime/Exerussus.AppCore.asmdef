@@ -2,7 +2,7 @@
     "name": "Exerussus.AppCore",
     "rootNamespace": "Exerussus.AppCore",
     "references": [
-        "GUID:4a5dd00b68966c04ca73b05fabee64d4",
+        "GUID:42f89000e8ef8e845b1f6c4a5aecdf1b",
         "GUID:f51ebe6a0ceec4240a699833d6309b23",
         "GUID:b70cf0eefb27f814c98931c7bf29065c",
         "GUID:17af2e148fb56ee4d881a508db686bc2"

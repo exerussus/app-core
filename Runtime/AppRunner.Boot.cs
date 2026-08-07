@@ -8,6 +8,7 @@ using UnityEngine.UIElements;
 using Exerussus.AppCore.Boot;
 using Exerussus.AppCore.Screens;
 using Exerussus.AppCore.Services;
+using Exerussus.DI;
 
 namespace Exerussus.AppCore
 {
@@ -209,6 +210,14 @@ namespace Exerussus.AppCore
         {
             try
             {
+                // Прогрев (если включён) идёт здесь, а не в InitializingCore: к этому моменту
+                // сервисы уже подписаны на OnPageMounted, поэтому событие о монтировании
+                // получают все страницы, а не только те, что смонтировались позже.
+                if (prewarmPages)
+                {
+                    foreach (var page in allPages) MountPage(page);
+                }
+
                 await NavigateTo(_defaultPage);
                 if (_isDestroyed) return;
 
@@ -318,9 +327,9 @@ namespace Exerussus.AppCore
             _hasUpdatable = _updatableServices.Length > 0;
 
             foreach (var service in _services) _container.Add(service);
-            foreach (var service in _services) _container.TryProvideFields(service);
+            foreach (var service in _services) _container.Provide(service);
             foreach (var service in _services) service.OnInject(_container);
-            foreach (var service in _services) _container.TryInjectFields(service);
+            foreach (var service in _services) _container.Inject(service);
             foreach (var service in _services) service.PreInitialize();
         }
 
@@ -333,16 +342,36 @@ namespace Exerussus.AppCore
         {
             foreach (var page in allPages) page.gameObject.SetActive(false);
             foreach (var page in allPages) page.AppRunner = this;
-            foreach (var page in allPages) page.Mount(_pagesLayer);
-            foreach (var page in allPages) RegisterSafeArea(page.SafeArea);
+
+            // Идентификаторы: PageUid/PopupUid считаются здесь, до заполнения реестров.
             foreach (var page in allPages) page.PreInitialize();
             foreach (var popup in allPopups) popup.PreInitialize();
-            foreach (var page in allPages) _pagesDict.Add(page.PageUid, page);
-            foreach (var popup in allPopups) _popupsDict.Add(popup.PopupUid, popup);
-            foreach (var page in allPages) if (page.HasController) _container.TryInjectFields(page.Controller);
-            foreach (var popup in allPopups) _container.TryInjectFields(popup);
-            foreach (var page in allPages) page.Controller?.Initialize();
-            foreach (var popup in allPopups) if (popup.HasController) popup.Controller.Initialize();
+
+            // Явная проверка на дубликаты: Add бросил бы «An item with the same key has already
+            // been added», по которому невозможно понять, какие именно объекты виноваты.
+            foreach (var page in allPages)
+            {
+                if (_pagesDict.TryGetValue(page.PageUid, out var clash))
+                    throw new Exception($"Дублирующийся id страницы \"{page.PageId}\": объекты '{clash.name}' и '{page.name}'.");
+
+                _pagesDict.Add(page.PageUid, page);
+            }
+
+            foreach (var popup in allPopups)
+            {
+                if (_popupsDict.TryGetValue(popup.PopupUid, out var clash))
+                    throw new Exception($"Дублирующийся id попапа \"{popup.PopupId}\": объекты '{clash.name}' и '{popup.name}'.");
+
+                _popupsDict.Add(popup.PopupUid, popup);
+            }
+
+            // Инъекции до монтирования: контроллеру для них не нужен Root, а вот
+            // Initialize уже обязан видеть и зависимости, и готовую вёрстку — поэтому
+            // Initialize вызывается при монтировании (MountPage/MountPopup), а не здесь.
+            foreach (var page in allPages) _container.Inject(page);
+            foreach (var page in allPages) if (page.HasController) _container.Inject(page.Controller);
+            foreach (var popup in allPopups) _container.Inject(popup);
+            foreach (var popup in allPopups) if (popup.HasController) _container.Inject(popup.Controller);
         }
 
         /// <summary>

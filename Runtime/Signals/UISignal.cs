@@ -17,7 +17,6 @@ namespace Exerussus.AppCore.Signals
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Initialize()
         {
-            Debug.Log("[DEBUG] Initializing UISignal");
             Handle       = global::Signals.Signal.GetOrCreate(UISignalId);
             ButtonRouter = new SignalRouter<ButtonPressed, string>(
                 Handle,

@@ -39,8 +39,6 @@ namespace Exerussus.AppCore.Views
         /// </summary>
         public VisualElement SafeArea { get; private set; }
 
-        private bool _registered;
-        
         /// <summary>Клонирует UXML и добавляет в переданный слой.</summary>
         public bool Mount(VisualElement parent)
         {
@@ -65,7 +63,6 @@ namespace Exerussus.AppCore.Views
         {
             _hasController = controller != null;
             PageUid = new PageId(pageId);
-            Debug.Log($"[DEBUG] Loaded page {PageUid}", this);
         }
 
         public async UniTask Activate()
@@ -74,12 +71,6 @@ namespace Exerussus.AppCore.Views
             if (_hasController)
             {
                 await Controller.OnActivate();
-            }
-            
-            if (!_registered)
-            {
-                _registered = true;
-                AppRunner.RegisterAppView(this);
             }
         }
     }

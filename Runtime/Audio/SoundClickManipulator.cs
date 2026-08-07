@@ -9,8 +9,6 @@ namespace Exerussus.AppCore.Audio
         {
             _soundAdapter = soundAdapter;
             _soundClips = soundClips;
-            
-            Debug.Log($"SoundClickManipulator created!!");
         }
         
         private readonly SoundAdapter _soundAdapter;

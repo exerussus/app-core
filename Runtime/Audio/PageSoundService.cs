@@ -13,43 +13,38 @@ namespace Exerussus.AppCore.Audio
         private UISoundLibrary _uiSoundLibrary;
         private SoundAdapter _soundAdapter;
 
-        private readonly Dictionary<string, int> _audioClasses = new();
         private readonly List<AudioClip> _audioClassesList = new();
-        
-        private bool _isValid;
-        
+
+        private bool _hasAdapter;
+
         public void OnInject(DependenciesContainer container)
         {
-            _isValid = container.TryGet(out _soundAdapter) && container.TryGet(out _uiSoundLibrary);
+            _hasAdapter = container.TryGet(out _soundAdapter);
 
-            if (_isValid)
-            {
-                for (var index = 0; index < _uiSoundLibrary.matches.Length; index++)
-                {
-                    var match = _uiSoundLibrary.matches[index];
-                    _audioClasses.Add(match.className, index);
-                }
-            }
-            else
-            {
-                Debug.LogWarning($"PageSoundService is not valid.");
-            }
+            // Библиотека необязательна глобально: вью может принести свою через OverrideSoundLibrary.
+            container.TryGet(out _uiSoundLibrary);
+
+            if (!_hasAdapter) Debug.LogWarning("PageSoundService: SoundAdapter не зарегистрирован — звуки UI отключены.");
         }
 
         public void OnBuildButtonManipulator(IAppView appView, Button button, PayloadBuilder payloadBuilder)
         {
-            if (!_isValid)
-            {
-                return;
-            }
-            
+            if (!_hasAdapter) return;
+
+            // Своя библиотека вью имеет приоритет над общей. Раньше это поле читалось,
+            // но никуда не передавалось, поэтому переопределение фактически не работало.
+            var library = appView.OverrideSoundLibrary != null ? appView.OverrideSoundLibrary : _uiSoundLibrary;
+            if (library == null || library.matches == null) return;
+
             _audioClassesList.Clear();
 
-            foreach (var (key, soundIndex) in _audioClasses)
+            foreach (var match in library.matches)
             {
-                if (button.ClassListContains(key) && _soundAdapter.TryGet(_uiSoundLibrary.matches[soundIndex].sound, out var clip)) _audioClassesList.Add(clip);
+                if (string.IsNullOrEmpty(match.className)) continue;
+                if (!button.ClassListContains(match.className)) continue;
+                if (_soundAdapter.TryGet(match.sound, out var clip)) _audioClassesList.Add(clip);
             }
-            
+
             if (_audioClassesList.Count > 0)
             {
                 button.AddToClassList("signal-button");

@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Audio;
 using Exerussus.AppCore.Layout;
 using Exerussus.AppCore.Navigation;
 
@@ -9,10 +10,11 @@ namespace Exerussus.AppCore.Views
     /// Базовый класс попапа для UI Toolkit.
     /// Монтируется в popupsLayer поверх страниц как абсолютный оверлей.
     /// </summary>
-    public class AppPopup : MonoBehaviour
+    public class AppPopup : MonoBehaviour, IAppView
     {
         [SerializeField] private string popupId;
         [SerializeField] private VisualTreeAsset visualTree;
+        [SerializeField] private UISoundLibrary overrideSoundLibrary;
         [SerializeField] private AppPopupController controller;
 
         private bool _hasController;
@@ -22,6 +24,9 @@ namespace Exerussus.AppCore.Views
         public AppPopupController Controller => controller;
         public bool HasController => _hasController;
 
+        /// <summary>Своя библиотека звуков попапа. Пусто — берётся общая из <see cref="AppRunner"/>.</summary>
+        public UISoundLibrary OverrideSoundLibrary => overrideSoundLibrary;
+
         public TemplateContainer Root { get; private set; }
 
         /// <summary>
@@ -29,8 +34,6 @@ namespace Exerussus.AppCore.Views
         /// Кэшируется при первом монтировании. <c>null</c>, если вёрстка его не содержит.
         /// </summary>
         public VisualElement SafeArea { get; private set; }
-
-        private bool _registered;
 
         /// <summary>Монтирует попап в слой (при первом вызове) и показывает его.</summary>
         /// <returns><c>true</c>, если попап смонтирован именно сейчас (первый раз).</returns>
@@ -65,7 +68,6 @@ namespace Exerussus.AppCore.Views
         {
             _hasController = controller != null;
             PopupUid = new PopupId(popupId);
-            Debug.Log($"[DEBUG] Loaded popup {PopupUid}", this);
         }
     }
 }

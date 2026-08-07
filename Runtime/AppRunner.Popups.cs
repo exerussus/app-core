@@ -85,6 +85,19 @@ namespace Exerussus.AppCore
         /// </summary>
         /// <remarks>Если попап с указанным <paramref name="popupUid"/> не найден — вызов игнорируется с ошибкой в лог.</remarks>
         /// <param name="popupUid">Идентификатор попапа, который нужно открыть.</param>
+        /// <summary>
+        /// Монтирует попап и добивает всё, что требует готовой вёрстки. Зеркало
+        /// <c>MountPage</c>: попапы всегда ленивые, их первое монтирование — это первое открытие.
+        /// </summary>
+        private void MountPopup(AppPopup popup)
+        {
+            if (!popup.Mount(_popupsLayer)) return;
+
+            RegisterSafeArea(popup.SafeArea);
+            if (popup.HasController) popup.Controller.Initialize();
+            RegisterAppView(popup);
+        }
+
         public void SwitchPopup(PopupId popupUid)
         {
             if (!_popupsDict.TryGetValue(popupUid, out var popup))
@@ -234,7 +247,7 @@ namespace Exerussus.AppCore
                 _popupStack.Push(popup);
 
                 popup.gameObject.SetActive(true);
-                if (popup.Mount(_popupsLayer)) RegisterSafeArea(popup.SafeArea);
+                MountPopup(popup);
                 
                 if (popup.HasController)
                 {

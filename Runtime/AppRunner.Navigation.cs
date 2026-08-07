@@ -96,6 +96,24 @@ namespace Exerussus.AppCore
         /// </summary>
         /// <remarks>Если страница с указанным <paramref name="pageUid"/> не найдена — вызов игнорируется с ошибкой в лог.</remarks>
         /// <param name="pageUid">Идентификатор страницы, которая станет стартовой.</param>
+        /// <summary>
+        /// Монтирует страницу и добивает всё, что требует готовой вёрстки: безопасную зону,
+        /// Initialize контроллера, манипуляторы кнопок и событие <see cref="OnPageMounted"/>.
+        /// </summary>
+        /// <remarks>
+        /// Идемпотентно: вся работа выполняется только при первом монтировании, поэтому метод
+        /// одинаково безопасен и для прогрева на старте, и для ленивого пути из навигации.
+        /// </remarks>
+        private void MountPage(AppPage page)
+        {
+            if (!page.Mount(_pagesLayer)) return;
+
+            RegisterSafeArea(page.SafeArea);
+            page.Controller?.Initialize();
+            RegisterAppView(page);
+            OnPageMounted?.Invoke(page.PageUid, page.Root);
+        }
+
         public void SetDefaultPage(PageId pageUid)
         {
             if (!_pagesDict.TryGetValue(pageUid, out var page))
@@ -330,14 +348,7 @@ namespace Exerussus.AppCore
                     }
                     
                     _currentPage = targetPage;
-                    var isNew = _currentPage.Mount(_pagesLayer);
-                    if (isNew)
-                    {
-                        // Штатно все страницы смонтированы ещё в InitializingCore, но страница,
-                        // добавленная в рантайме, тоже обязана получить безопасную зону.
-                        RegisterSafeArea(_currentPage.SafeArea);
-                        OnPageMounted?.Invoke(_currentPage.PageUid, _currentPage.Root);
-                    }   
+                    MountPage(_currentPage);
                     _currentPage.gameObject.SetActive(true);
                     await _currentPage.Activate();
                     
