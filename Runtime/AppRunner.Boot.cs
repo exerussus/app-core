@@ -224,7 +224,7 @@ namespace Exerussus.AppCore
                 IsAppReady = true;
                 _readySource.TrySetResult();
 
-                try { OnAppReady?.Invoke(); }
+                try { OnAppReady?.Invoke(_container); }
                 catch (Exception e) { Debug.LogException(e); }
             }
             catch (OperationCanceledException)
@@ -535,7 +535,7 @@ namespace Exerussus.AppCore
         private readonly UniTaskCompletionSource _readySource = new();
 
         /// <summary>Приложение полностью готово (после стартовой навигации). Безопасная точка для отложенных попапов.</summary>
-        public event Action OnAppReady;
+        public event Action<DependenciesContainer> OnAppReady;
 
         /// <summary>Бут упал терминально. Аргумент — причина. Показан <see cref="CriticalScreen"/>.</summary>
         public event Action<string> OnBootFailed;
