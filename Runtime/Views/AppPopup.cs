@@ -45,6 +45,7 @@ namespace Exerussus.AppCore.Views
             {
                 isNew = true;
                 Root = visualTree.Instantiate();
+                Root.name = popupId;
                 Root.style.position = Position.Absolute;
                 Root.style.left = 0;
                 Root.style.right = 0;

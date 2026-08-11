@@ -61,7 +61,19 @@ namespace Exerussus.AppCore.Screens
             _mounted = true;
             _parent = parent;
 
-            _root = visualTree != null ? visualTree.Instantiate() : BuildFallback();
+            if (visualTree != null)
+            {
+                // Имя корню даёт сам Instantiate() — по имени ассета вёрстки.
+                _root = visualTree.Instantiate();
+            }
+            else
+            {
+                _root = BuildFallback();
+                // А вот код-построенный корень — это диммер с общим для всех скринов именем
+                // screen-dimmer: в дереве screensLayer они были бы неразличимы. Уточняем до типа.
+                _root.name = GetType().Name;
+            }
+
             _root.style.position = Position.Absolute;
             _root.style.left = 0;
             _root.style.right = 0;

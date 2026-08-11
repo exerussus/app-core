@@ -1,7 +1,6 @@
 ﻿using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
-using Exerussus.AppCore;
 using Exerussus.AppCore.Audio;
 using Exerussus.AppCore.Layout;
 using Exerussus.AppCore.Navigation;
@@ -47,6 +46,8 @@ namespace Exerussus.AppCore.Views
             Root = visualTree.Instantiate();
             Root.AddToClassList("page");
             Root.style.flexGrow = 1;
+            Root.name = pageId;
+            Root.pickingMode = PickingMode.Ignore;
             parent.Add(Root);
             SafeArea = SafeAreaLayout.Find(Root);
             if (controller != null) controller.Root = Root;

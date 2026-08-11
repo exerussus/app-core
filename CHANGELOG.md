@@ -3,6 +3,35 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [2.1.2]
+
+### Добавлено
+
+- `AppPage.Mount` и `AppPopup.Mount` присваивают обёртке `Root.name` — `pageId` и `popupId`
+  соответственно. Имя у `TemplateContainer` было и раньше — `Instantiate()` берёт его из имени
+  ассета вёрстки; теперь источником становится id вью. В UI Toolkit Debugger дерево панели
+  читается тем же ключом, которым вью адресуется в коде (`PageId`/`PopupId`), и имя не
+  разъезжается, если uxml переименован или одна вёрстка переиспользована несколькими вью.
+  На поиск и стили не влияет: `Q<T>` в ядре идёт по `mainContainer`, `safeArea` и
+  `*__action-hook`, USS-селекторов `#<id>` в проекте нет.
+
+- Скрин, построенный кодом (`BuildFallback`, когда `visualTree` не задан), получает имя типа
+  вместо общего `screen-dimmer` — иначе `LoadingScreen`/`ErrorScreen`/`CriticalScreen`
+  неразличимы в дереве `screensLayer` в UI Toolkit Debugger. Скрины с вёрсткой не тронуты:
+  им имя даёт `Instantiate()` по имени ассета. На поиск и стили не влияет — по этому имени
+  никто не ищет, USS-селекторов `#screen-dimmer` в проекте нет.
+
+### Исправлено
+
+- Обёртка страницы блокировала world-space ввод. `AppPage.Mount` создавал `Root`
+  (`TemplateContainer`) с `flexGrow = 1` и дефолтным `PickingMode.Position` внутри
+  полноэкранного `pagesLayer`. Пока страница активна, `panel.Pick()` в любой точке возвращал
+  эту обёртку, событие указателя считалось обработанным screen-space панелью App и до
+  world-space `UIDocument` не доходило. Слои (`_screensLayer`/`_pagesLayer`/`_popupsLayer`)
+  были прикрыты `PickingMode.Ignore`, обёртка — нет. Теперь `Root.pickingMode = Ignore`:
+  из пика исключается только сам элемент, дети пикаются как раньше.
+  `AppPopup` не тронут — попап перехватывает ввод намеренно (модальность).
+
 ## [2.1.1]
 
 ### Исправлено
