@@ -162,7 +162,9 @@ namespace Exerussus.AppCore
             
             _bootCts = new CancellationTokenSource();
             
-            _container = new();
+            // Логгер обязателен: без него политика Warn при конфликте ключей молчит в NullDiLogger,
+            // и повторная регистрация типа затирает ссылку без единого следа в консоли.
+            _container = new(logger: UnityDiLogger.Instance);
             _container.Add(this);
             _container.Add(_container);
 

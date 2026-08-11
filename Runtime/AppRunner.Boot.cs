@@ -299,7 +299,9 @@ namespace Exerussus.AppCore
         {
             if (sharedObjects is { Length: >0 })
             {
-                foreach (var sharedObject in sharedObjects) _container.Add(sharedObject);
+                // AddByRuntimeType, а не Add: поле объявлено как Object[], поэтому Add<T>
+                // вывел бы T = UnityEngine.Object и сложил бы все объекты в один ключ.
+                foreach (var sharedObject in sharedObjects) _container.AddByRuntimeType(sharedObject);
             }
 
             // Скрины кладём в контейнер, чтобы сервисы могли [Inject] их и показать гейт/крит.
@@ -326,7 +328,11 @@ namespace Exerussus.AppCore
             _appManipulatorBuilders = _services.OfType<IAppManipulatorBuilder>().ToArray();
             _hasUpdatable = _updatableServices.Length > 0;
 
-            foreach (var service in _services) _container.Add(service);
+            // AddByRuntimeType, а не Add: элемент массива статически типизирован как IAppService,
+            // и Add<T> зарегистрировал бы ВСЕ сервисы под одним ключом typeof(IAppService),
+            // затирая друг друга. Резолв нужен по конкретному типу сервиса.
+            // Инъекция по интерфейсу — через [Provide] у сервиса или явный Add(typeof(IFoo), svc).
+            foreach (var service in _services) _container.AddByRuntimeType(service);
             foreach (var service in _services) _container.Provide(service);
             foreach (var service in _services) service.OnInject(_container);
             foreach (var service in _services) _container.Inject(service);
