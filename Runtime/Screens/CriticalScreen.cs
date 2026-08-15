@@ -104,7 +104,7 @@ namespace Exerussus.AppCore.Screens
         {
             var dimmer = BuildDimmer();
 
-            var box = BuildSafeAreaBox();
+            var box = BuildContentBox();
 
             _messageLabel = BuildMessageLabel(string.Empty);
             box.Add(_messageLabel);

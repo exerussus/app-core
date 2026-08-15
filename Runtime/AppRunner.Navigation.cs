@@ -108,7 +108,6 @@ namespace Exerussus.AppCore
         {
             if (!page.Mount(_pagesLayer)) return;
 
-            RegisterSafeArea(page.SafeArea);
             page.Controller?.Initialize();
             RegisterAppView(page);
             OnPageMounted?.Invoke(page.PageUid, page.Root);

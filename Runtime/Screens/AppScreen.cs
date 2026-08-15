@@ -1,7 +1,6 @@
 ﻿using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
-using Exerussus.AppCore.Layout;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -45,13 +44,6 @@ namespace Exerussus.AppCore.Screens
         protected VisualElement Root => _root;
 
         /// <summary>
-        /// Контейнер безопасной зоны скрина (элемент с именем <c>safeArea</c>).
-        /// Кэшируется при монтировании. Диммер/фон скрина сознательно остаётся во весь экран,
-        /// а внутрь безопасной зоны убирается только контент.
-        /// </summary>
-        public VisualElement SafeArea { get; private set; }
-
-        /// <summary>
         /// Монтирует скрин в переданный слой. Идемпотентно: повторный вызов — no-op.
         /// Вызывается один раз до старта boot-машины.
         /// </summary>
@@ -82,8 +74,6 @@ namespace Exerussus.AppCore.Screens
             _root.style.display = DisplayStyle.None;
             _root.pickingMode = PickingMode.Ignore;
             _parent.Add(_root);
-
-            SafeArea = SafeAreaLayout.Find(_root);
 
             OnMounted(_root);
             gameObject.SetActive(false);
@@ -138,12 +128,12 @@ namespace Exerussus.AppCore.Screens
         }
 
         /// <summary>
-        /// Контейнер контента, помеченный как безопасная зона. Диммер под ним намеренно
-        /// остаётся во весь экран — затемнение обязано доходить до краёв, включая чёлку.
+        /// Контейнер контента скрина. Безопасную зону раздаёт <see cref="AppRunner"/> общему
+        /// контейнеру слоёв, поэтому здесь остаётся только центрирование содержимого.
         /// </summary>
-        protected static VisualElement BuildSafeAreaBox()
+        protected static VisualElement BuildContentBox()
         {
-            var box = new VisualElement { name = SafeAreaLayout.ElementName };
+            var box = new VisualElement { name = "content" };
             box.style.flexGrow = 1;
             box.style.justifyContent = Justify.Center;
             box.style.alignItems = Align.Center;

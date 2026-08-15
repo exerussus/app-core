@@ -8,6 +8,7 @@ using UnityEngine.UIElements;
 using Exerussus.AppCore.Boot;
 using Exerussus.AppCore.Screens;
 using Exerussus.AppCore.Services;
+using Exerussus.AppCore.Views;
 using Exerussus.DI;
 
 namespace Exerussus.AppCore
@@ -348,8 +349,10 @@ namespace Exerussus.AppCore
         {
             foreach (var page in allPages) page.gameObject.SetActive(false);
             foreach (var page in allPages) page.AppRunner = this;
+            foreach (var popup in allPopups) popup.AppRunner = this;
 
             // Идентификаторы: PageUid/PopupUid считаются здесь, до заполнения реестров.
+            // Здесь же вью собирают свои фрагменты (includeInactive: объекты уже погашены).
             foreach (var page in allPages) page.PreInitialize();
             foreach (var popup in allPopups) popup.PreInitialize();
 
@@ -378,6 +381,12 @@ namespace Exerussus.AppCore
             foreach (var page in allPages) if (page.HasController) _container.Inject(page.Controller);
             foreach (var popup in allPopups) _container.Inject(popup);
             foreach (var popup in allPopups) if (popup.HasController) _container.Inject(popup.Controller);
+
+            // Фрагменты ищем от раннера: так один проход накрывает и страницы, и попапы,
+            // и не приходится спрашивать у каждого вью его список.
+            var allFragments = GetComponentsInChildren<AppFragment>(true);
+            foreach (var fragment in allFragments) _container.Inject(fragment);
+            foreach (var fragment in allFragments) if (fragment.HasController) _container.Inject(fragment.Controller);
         }
 
         /// <summary>

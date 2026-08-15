@@ -35,7 +35,7 @@ namespace Exerussus.AppCore
     /// складываются в потокобезопасную очередь и выполняются в <see cref="Update"/>.
     /// </para>
     /// </remarks>
-    [RequireComponent(typeof(UIDocument))]
+    [RequireComponent(typeof(PanelRenderer))]
     public partial class AppRunner : MonoBehaviour
     {
         [Tooltip("Настройки навигации (PageId/PopupId и их генерация). ОБЯЗАТЕЛЕН: без него AppRunner не стартует.")]
@@ -99,6 +99,18 @@ namespace Exerussus.AppCore
         [Tooltip("Общие объекты, регистрируемые в контейнере зависимостей как сервисы. Необязателен: можно оставить пустым.")]
         [SerializeField] private Object[] sharedObjects;
 
+        [Tooltip("Держать интерфейс в референсной пропорции панели, когда окно шире неё: по бокам " +
+                 "появляются чёрные поля, содержимое вжимается в центральную полосу. Пропорция берётся " +
+                 "из Reference Resolution ассета Panel Settings — настраивать здесь нечего.")]
+        [SerializeField] private bool frameToReferenceAspect = true;
+
+        [Tooltip("Нижняя граница доли ширины, занятой кадром. Страховка от вырожденной полосы " +
+                 "на экстремально широком окне.")]
+        [SerializeField, Range(0.05f, 1f)] private float frameMinShare = 0.2f;
+
+        [Tooltip("Цвет полей по бокам кадра.")]
+        [SerializeField] private Color frameBarColor = Color.black;
+
         /// <summary>
         /// Все страницы приложения. Первый элемент массива считается страницей по умолчанию
         /// и открывается автоматически при старте.
@@ -108,9 +120,21 @@ namespace Exerussus.AppCore
         /// <summary>Все попапы приложения, доступные для открытия через <see cref="OpenPopup"/> и <see cref="SwitchPopup"/>.</summary>
         private AppPopup[] allPopups;
 
-        private UIDocument _document;
+        private PanelRenderer _panelRenderer;
 
-        /// <summary>Корень панели UIDocument. Используется как проба панели при расчёте безопасной зоны.</summary>
+        /// <summary>
+        /// Подписан ли <see cref="OnUIReload"/>. Отписка в <see cref="OnDestroy"/> идёт под этим
+        /// флагом: Awake может выйти раньше регистрации по невалидной конфигурации.
+        /// </summary>
+        private bool _uiCallbackRegistered;
+
+        /// <summary>
+        /// Построены ли слои. PanelRenderer дёргает колбэк повторно (OnEnable, LiveReload),
+        /// а AppRunner строит слои и гоняет бут ровно один раз — как это делал UIDocument-путь.
+        /// </summary>
+        private bool _uiBuilt;
+
+        /// <summary>Корень панели PanelRenderer. Используется как проба панели при расчёте безопасной зоны.</summary>
         private VisualElement _root;
 
         /// <summary>Слой скринов: поверх страниц и попапов. Loading/Error/Critical живут здесь.</summary>
@@ -154,10 +178,8 @@ namespace Exerussus.AppCore
 
             // Кэш расчёта статический и переживает перезагрузку сцены (и Play Mode без Domain
             // Reload). Сбрасываем, чтобы отступы пересчитались под панель именно этой сцены.
-            SafeAreaLayout.Reset();
-            
-            SetupUiLayers();
-            
+            ScreenMetrics.Invalidate();
+
             if (navigationSettings != null) NavigationLink.Initialize(navigationSettings);
             
             _bootCts = new CancellationTokenSource();
@@ -185,17 +207,68 @@ namespace Exerussus.AppCore
 
             foreach (var page in allPages) page.gameObject.SetActive(false);
             foreach (var popup in allPopups) popup.gameObject.SetActive(false);
-            
+
+            // Дальше нужен корень панели, а PanelRenderer отдаёт его только колбэком — синхронного
+            // rootVisualElement у него нет. Поэтому слои и старт бут-машины уезжают в OnUIReload.
+            // Регистрация строго последней: до неё стоят ранние return по невалидной конфигурации,
+            // и бут не должен стартовать на них.
+            _panelRenderer = GetComponent<PanelRenderer>();
+
+            // Порядок важен: сначала снимаем референс и подменяем настройки копией, и только
+            // потом строим правило — иначе пропорция считалась бы по уже расширенному референсу.
+            SetupFramePanelSettings();
+            ScreenMetrics.Policy = ResolveFramePolicy();
+
+            _panelRenderer.RegisterUIReloadCallback(OnUIReload);
+            _uiCallbackRegistered = true;
+        }
+
+        /// <summary>
+        /// Собирает правило обрезки кадра. Пропорция берётся из референса, снятого
+        /// <c>SetupFramePanelSettings</c> ДО подмены настроек: читать его у панели повторно
+        /// нельзя — там уже расширенная копия. Если референса нет или обрезка выключена,
+        /// правило неактивно и полоса всегда во весь экран.
+        /// </summary>
+        private FramePolicy ResolveFramePolicy()
+        {
+            if (!frameToReferenceAspect) return FramePolicy.Disabled;
+            if (_referenceResolution.x <= 0 || _referenceResolution.y <= 0) return FramePolicy.Disabled;
+
+            return new FramePolicy((float)_referenceResolution.x / _referenceResolution.y, frameMinShare);
+        }
+
+        /// <summary>
+        /// Корень панели готов. Вызывается на OnEnable и на каждом LiveReload вёрстки; строим
+        /// ровно один раз — повторные вызовы отсекаются <see cref="_uiBuilt"/>.
+        /// </summary>
+        private void OnUIReload(PanelRenderer renderer, VisualElement root)
+        {
+            if (_uiBuilt || _isDestroyed || root == null) return;
+            _uiBuilt = true;
+
+            SetupUiLayers(root);
+
             // Стартуем машину. Дальше всё движется через Update.
             TransitionTo(BootState.CoveringScreen);
         }
 
         /// <summary>Создаёт и монтирует UI-слои. Чисто синхронная подготовка до старта машины.</summary>
-        private void SetupUiLayers()
+        private void SetupUiLayers(VisualElement root)
         {
-            _document = GetComponent<UIDocument>();
-            _root = _document.rootVisualElement;
-            var root = _root;
+            _root = root;
+
+            // Общий контейнер всех слоёв. Только он и двигается под кадр и безопасную зону —
+            // страницы и попапы растянуты на 100% и получают вжатие даром.
+            // Стартует во весь корень; ApplyScreenMetrics меняет ему left/right/top/bottom.
+            // Именно смещение, а не padding: слои внутри абсолютные, а padding у абсолютных
+            // детей не отсчитывается — они привязаны к padding box, внутри которого он и лежит.
+            _contentRoot = new VisualElement { name = "contentRoot" };
+            _contentRoot.style.position = Position.Absolute;
+            _contentRoot.style.left = 0;
+            _contentRoot.style.right = 0;
+            _contentRoot.style.top = 0;
+            _contentRoot.style.bottom = 0;
+            _contentRoot.pickingMode = PickingMode.Ignore;
 
             _screensLayer = new VisualElement { name = "screensLayer" };
             _screensLayer.style.position = Position.Absolute;
@@ -221,33 +294,42 @@ namespace Exerussus.AppCore
             _popupsLayer.style.top = _popupsLayer.style.bottom = 0;
             _popupsLayer.pickingMode = PickingMode.Ignore;
 
-            root.Add(_pagesLayer);
-            root.Add(_popupsLayer);
-            root.Add(_screensLayer);
+            _contentRoot.Add(_pagesLayer);
+            _contentRoot.Add(_popupsLayer);
+            _contentRoot.Add(_screensLayer);
 
             // Слой скринов — самый верхний. Все скрины (Loading/Error/Critical) живут здесь.
             // Приоритет между ними держим порядком BringToFront при показе: Loading < Error < Critical.
             _screensLayer.BringToFront();
 
-            // Монтируем все скрины сразу: их безопасная зона должна быть найдена и закэширована
-            // до старта boot-машины, а не при первом показе.
-            if (_hasScreen)
-            {
-                loadingScreen.Mount(_screensLayer);
-                RegisterSafeArea(loadingScreen.SafeArea);
-            }
+            root.Add(_contentRoot);
 
-            if (_hasErrorScreen)
-            {
-                errorScreen.Mount(_screensLayer);
-                RegisterSafeArea(errorScreen.SafeArea);
-            }
+            // Поля кадра — СНАРУЖИ contentRoot и после него: они обязаны быть поверх всего
+            // и не участвовать в его padding'е. Pick им оставлен по умолчанию (Position):
+            // клик в чёрное поле не должен проваливаться в мир под панелью.
+            _frameMaskLeft = CreateFrameMask("frameMaskLeft", left: true);
+            _frameMaskRight = CreateFrameMask("frameMaskRight", left: false);
+            root.Add(_frameMaskLeft);
+            root.Add(_frameMaskRight);
 
-            if (_hasCriticalScreen)
-            {
-                criticalScreen.Mount(_screensLayer);
-                RegisterSafeArea(criticalScreen.SafeArea);
-            }
+            // Монтируем все скрины сразу, до старта boot-машины, а не при первом показе.
+            if (_hasScreen) loadingScreen.Mount(_screensLayer);
+            if (_hasErrorScreen) errorScreen.Mount(_screensLayer);
+            if (_hasCriticalScreen) criticalScreen.Mount(_screensLayer);
+        }
+
+        private VisualElement CreateFrameMask(string name, bool left)
+        {
+            var mask = new VisualElement { name = name };
+            mask.style.position = Position.Absolute;
+            mask.style.top = 0;
+            mask.style.bottom = 0;
+            if (left) mask.style.left = 0;
+            else mask.style.right = 0;
+            mask.style.width = 0;
+            mask.style.backgroundColor = frameBarColor;
+            mask.style.display = DisplayStyle.None;
+            return mask;
         }
 
         // /// <summary>
@@ -269,6 +351,14 @@ namespace Exerussus.AppCore
         private void OnDestroy()
         {
             _isDestroyed = true;
+
+            if (_uiCallbackRegistered)
+            {
+                _uiCallbackRegistered = false;
+                if (_panelRenderer != null) _panelRenderer.UnregisterUIReloadCallback(OnUIReload);
+            }
+
+            ReleaseFramePanelSettings();
 
             if (_bootCts != null)
             {
@@ -296,9 +386,9 @@ namespace Exerussus.AppCore
         {
             PumpMainThreadQueue();
 
-            // Безопасная зона обслуживается независимо от стадии бута: она нужна и экрану
+            // Кадр и безопасная зона обслуживаются независимо от стадии бута: они нужны и экрану
             // загрузки, и критическому скрину, то есть ещё до готовности приложения.
-            TickSafeArea();
+            TickScreenMetrics();
 
             TickBootStateMachine();
 

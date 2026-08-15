@@ -1,7 +1,6 @@
 ﻿using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
-using Exerussus.AppCore.Layout;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -24,14 +23,8 @@ namespace Exerussus.AppCore.Screens
         public bool IsVisible { get; private set; }
 
         /// <summary>
-        /// Контейнер безопасной зоны (элемент с именем <c>safeArea</c> в UXML).
-        /// Кэшируется при монтировании. <c>null</c>, если вёрстка его не содержит.
-        /// </summary>
-        public VisualElement SafeArea { get; private set; }
-
-        /// <summary>
         /// Монтирует визуал в слой скринов. Идемпотентно. Вызывается AppRunner-ом до старта
-        /// boot-машины, чтобы безопасная зона раздалась экрану сразу, а не при первом показе.
+        /// boot-машины, а не при первом показе.
         /// </summary>
         /// <returns><c>true</c>, если монтирование произошло именно сейчас.</returns>
         public bool Mount(VisualElement parent)
@@ -44,7 +37,6 @@ namespace Exerussus.AppCore.Screens
             _root.style.height = Length.Percent(100);
             _parent = parent;
             _parent.Add(_root);
-            SafeArea = SafeAreaLayout.Find(_root);
             _hasController = loadingScreenController != null;
             if (_hasController) loadingScreenController.OnMount(_root);
             return true;
