@@ -65,6 +65,7 @@ namespace Exerussus.AppCore.Views
         public void PreInitialize()
         {
             _hasController = controller != null;
+            if (_hasController) controller.Popup = this;
             PopupUid = new PopupId(popupId);
             _fragments.CollectFragments(this);
         }
