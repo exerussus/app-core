@@ -9,18 +9,26 @@ namespace Exerussus.AppCore.Screens
     /// </summary>
     public class LoadingScreen : MonoBehaviour
     {
-        [SerializeField] private VisualTreeAsset visualTree;
+        [Tooltip("Вёрстка во всю полосу кадра: заливка/фон экрана загрузки. Необязательна.")]
+        [SerializeField] private VisualTreeAsset fullTree;
+
+        [Tooltip("Вёрстка внутри безопасной зоны: логотип, прогресс, подписи. Необязательна.")]
+        [SerializeField] private VisualTreeAsset safeTree;
         [SerializeField] private LoadingScreenController loadingScreenController;
         
         [SerializeField, Tooltip("Дефолтное время затухания при отсутствии контроллера")] 
         private float fadeSeconds = 0.5f;
         
         private VisualElement _parent;
-        private TemplateContainer _root;
+        private readonly Exerussus.AppCore.Views.ViewRoot _view = new();
+        private VisualElement _root;
         private bool _hasController;
         private bool _isInitialized;
         
         public bool IsVisible { get; private set; }
+
+        /// <summary>Проставляется AppRunner-ом до монтирования — нужен для регистрации безопасной зоны.</summary>
+        public AppRunner AppRunner { get; internal set; }
 
         /// <summary>
         /// Монтирует визуал в слой скринов. Идемпотентно. Вызывается AppRunner-ом до старта
@@ -31,12 +39,19 @@ namespace Exerussus.AppCore.Screens
         {
             if (_isInitialized) return false;
             _isInitialized = true;
-            _root = visualTree.Instantiate();
-            _root.style.flexGrow = 1;
-            _root.style.width = Length.Percent(100);
-            _root.style.height = Length.Percent(100);
+
+            if (!_view.Build(nameof(LoadingScreen), fullTree, safeTree))
+            {
+                Debug.LogError("[AppCore] LoadingScreen: не задано ни одного VisualTreeAsset.");
+                return false;
+            }
+
+            _root = _view.Root;
             _parent = parent;
             _parent.Add(_root);
+
+            AppRunner?.RegisterSafeArea(_view);
+
             _hasController = loadingScreenController != null;
             if (_hasController) loadingScreenController.OnMount(_root);
             return true;

@@ -52,8 +52,12 @@ namespace Exerussus.AppCore.Views
         public bool UnmountOnHide => unmountOnHide;
         public UISoundLibrary OverrideSoundLibrary => overrideSoundLibrary;
 
-        /// <summary>Корневой элемент. Null, пока фрагмент не смонтирован.</summary>
-        public TemplateContainer Root { get; private set; }
+        /// <summary>
+        /// Корневой элемент. Null, пока фрагмент не смонтирован.
+        /// Тип — <c>VisualElement</c>, как того требует <see cref="IAppView"/>: C# не допускает
+        /// ковариантность в свойствах интерфейса, а фактически здесь лежит TemplateContainer.
+        /// </summary>
+        public VisualElement Root { get; private set; }
 
         /// <summary>Показан ли фрагмент прямо сейчас.</summary>
         public bool IsVisible { get; private set; }

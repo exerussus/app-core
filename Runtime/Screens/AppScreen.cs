@@ -11,7 +11,7 @@ namespace Exerussus.AppCore.Screens
     /// <para>
     /// Ключевой инвариант (рельса): скрин НИКОГДА не касается контейнера зависимостей.
     /// Ни <c>[Inject]</c>, ни <c>container.Get</c>, ни обращений к сервисам. Всё, что ему нужно,
-    /// приходит либо из инспектора (<see cref="visualTree"/> + опциональный контроллер в наследнике),
+    /// приходит либо из инспектора (вёрстка + опциональный контроллер в наследнике),
     /// либо аргументами в его собственный <c>Show(...)</c>.
     /// </para>
     /// <para>
@@ -27,21 +27,33 @@ namespace Exerussus.AppCore.Screens
     public abstract class AppScreen : MonoBehaviour
     {
         /// <summary>
-        /// Опциональный UXML. Если задан — монтируется как визуал скрина.
-        /// Если пуст — наследник обязан построить оверлей кодом (<see cref="BuildFallback"/>),
-        /// чтобы скрин оставался последним рубежом без зависимости от ассетов/стилей.
+        /// Опциональная вёрстка во всю полосу кадра: диммер, затемнение. Если оба дерева пусты —
+        /// наследник строит оверлей кодом (<see cref="BuildFallbackBackdrop"/> +
+        /// <see cref="BuildFallbackContent"/>), чтобы скрин оставался последним рубежом
+        /// без зависимости от ассетов и стилей.
         /// </summary>
-        [SerializeField] protected VisualTreeAsset visualTree;
+        [SerializeField] protected VisualTreeAsset fullTree;
+
+        /// <summary>Опциональная вёрстка внутри безопасной зоны: контент скрина.</summary>
+        [SerializeField] protected VisualTreeAsset safeTree;
 
         private VisualElement _parent;
         private VisualElement _root;
+        private VisualElement _full;
+        private VisualElement _safe;
         private bool _mounted;
 
         /// <summary>Виден ли скрин прямо сейчас.</summary>
         public bool IsVisible { get; private set; }
 
-        /// <summary>Корень визуала скрина. Валиден только после <see cref="Mount"/>.</summary>
+        /// <summary>Корень визуала скрина. Валиден только после <see cref="Mount"/>. Ищет по обоим слоям.</summary>
         protected VisualElement Root => _root;
+
+        /// <summary>Слой во всю полосу кадра — диммер и фон.</summary>
+        protected VisualElement FullRoot => _full;
+
+        /// <summary>Слой безопасной зоны — контент.</summary>
+        protected VisualElement SafeRoot => _safe;
 
         /// <summary>
         /// Монтирует скрин в переданный слой. Идемпотентно: повторный вызов — no-op.
@@ -53,19 +65,9 @@ namespace Exerussus.AppCore.Screens
             _mounted = true;
             _parent = parent;
 
-            if (visualTree != null)
-            {
-                // Имя корню даёт сам Instantiate() — по имени ассета вёрстки.
-                _root = visualTree.Instantiate();
-            }
-            else
-            {
-                _root = BuildFallback();
-                // А вот код-построенный корень — это диммер с общим для всех скринов именем
-                // screen-dimmer: в дереве screensLayer они были бы неразличимы. Уточняем до типа.
-                _root.name = GetType().Name;
-            }
-
+            // Обёртка во всю полосу кадра; внутри два слоя. Диммер обязан доходить до выреза,
+            // поэтому живёт в полноэкранном слое, а контент — в безопасном.
+            _root = new VisualElement { name = GetType().Name };
             _root.style.position = Position.Absolute;
             _root.style.left = 0;
             _root.style.right = 0;
@@ -73,6 +75,23 @@ namespace Exerussus.AppCore.Screens
             _root.style.bottom = 0;
             _root.style.display = DisplayStyle.None;
             _root.pickingMode = PickingMode.Ignore;
+
+            // Fallback строим целиком и только когда вёрстки нет вовсе: наполовину код,
+            // наполовину uxml — это две разные системы координат в одном скрине.
+            var noTrees = fullTree == null && safeTree == null;
+
+            VisualElement fullContent = fullTree != null ? fullTree.Instantiate() : null;
+            VisualElement safeContent = safeTree != null ? safeTree.Instantiate() : null;
+
+            if (noTrees)
+            {
+                fullContent = BuildFallbackBackdrop();
+                safeContent = BuildFallbackContent();
+            }
+
+            _full = AddLayer("__full", fullContent);
+            _safe = AddLayer("__safe", safeContent);
+
             _parent.Add(_root);
 
             OnMounted(_root);
@@ -111,10 +130,46 @@ namespace Exerussus.AppCore.Screens
         protected abstract void OnMounted(VisualElement root);
 
         /// <summary>
-        /// Строит визуал кодом, когда <see cref="visualTree"/> не задан. Это последний рубеж:
-        /// он не должен зависеть ни от uxml, ни от стилей, ни от контейнера.
+        /// Строит фон кодом, когда вёрстка не задана: диммер во всю полосу кадра.
+        /// Это последний рубеж — он не должен зависеть ни от uxml, ни от стилей, ни от контейнера.
         /// </summary>
-        protected abstract VisualElement BuildFallback();
+        protected abstract VisualElement BuildFallbackBackdrop();
+
+        /// <summary>
+        /// Строит контент кодом — он ляжет в безопасную зону, поверх фона.
+        /// Разделение обязательно: затемнение должно доходить до выреза, а текст и кнопки — нет.
+        /// </summary>
+        protected abstract VisualElement BuildFallbackContent();
+
+        /// <summary>Добавляет слой с содержимым. <c>null</c>-содержимое — слоя не будет.</summary>
+        private VisualElement AddLayer(string suffix, VisualElement content)
+        {
+            if (content == null) return null;
+
+            var layer = new VisualElement { name = GetType().Name + suffix };
+            layer.style.position = Position.Absolute;
+            layer.style.left = 0;
+            layer.style.right = 0;
+            layer.style.top = 0;
+            layer.style.bottom = 0;
+            layer.pickingMode = PickingMode.Ignore;
+
+            content.style.flexGrow = 1;
+            layer.Add(content);
+            _root.Add(layer);
+            return layer;
+        }
+
+        /// <summary>Отступы безопасной зоны — их раздаёт AppRunner при изменении экрана.</summary>
+        internal void ApplySafeInsets(float left, float right, float top, float bottom)
+        {
+            if (_safe == null) return;
+
+            _safe.style.left = left;
+            _safe.style.right = right;
+            _safe.style.top = top;
+            _safe.style.bottom = bottom;
+        }
 
         // Утилита для код-построенных оверлеев наследников.
         protected static VisualElement BuildDimmer()

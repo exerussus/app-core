@@ -1,6 +1,9 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Layout;
+using Exerussus.AppCore.Screens;
+using Exerussus.AppCore.Views;
 
 namespace Exerussus.AppCore
 {
@@ -9,20 +12,19 @@ namespace Exerussus.AppCore
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Раньше отступы раздавались по реестру контейнеров <c>safeArea</c>, найденных в вёрстке
-    /// каждой страницы, попапа и скрина. Теперь всё вжимает один общий контейнер
-    /// <c>contentRoot</c>, внутри которого живут все три слоя. Страницы и попапы и так
-    /// растянуты на 100%, поэтому они получают и безопасную зону, и полосу кадра
-    /// без единого действия со своей стороны.
+    /// Два уровня вжатия. <c>contentRoot</c> — полоса кадра: только поле обрезки, ничего больше;
+    /// в ней живут слои страниц, попапов и скринов, и всё, что должно доходить до выреза
+    /// (фон, диммер), рисуется именно тут. Безопасную зону получает отдельный слой <c>safe</c>
+    /// внутри каждого вью — по реестру, который наполняется при монтировании.
     /// </para>
     /// <para>
-    /// Полоса кадра и безопасная зона складываются в ОДНО смещение контейнера: два вложенных
-    /// элемента дали бы два прохода раскладки там, где достаточно одного.
+    /// Разделять пришлось именно потому, что одним отступом это не описать: фон обязан
+    /// доходить до выреза, а текст и кнопки — нет. Одним контейнером получается либо то, либо другое.
     /// </para>
     /// </remarks>
     public partial class AppRunner
     {
-        /// <summary>Общий контейнер слоёв. Именно ему раздаются отступы кадра и безопасной зоны.</summary>
+        /// <summary>Общий контейнер слоёв — полоса кадра. Безопасную зону получают слои внутри вью.</summary>
         private VisualElement _contentRoot;
 
         /// <summary>
@@ -49,6 +51,45 @@ namespace Exerussus.AppCore
         private PanelSettings _panelSettingsClone;
 
         private int _appliedReferenceWidth = -1;
+
+        /// <summary>
+        /// Безопасные слои смонтированных вью. Реестр вернулся вместе со сплитом вёрстки:
+        /// отступы выреза теперь получает не общий контейнер, а слой <c>safe</c> внутри
+        /// каждого вью — иначе фон страницы не смог бы доходить до выреза.
+        /// Список только растёт: вью не размонтируются до конца сессии.
+        /// </summary>
+        private readonly List<ViewRoot> _safeAreaViews = new();
+
+        /// <summary>Скрины идут отдельным списком: у них своя обёртка, не <see cref="ViewRoot"/>.</summary>
+        private readonly List<AppScreen> _safeAreaScreens = new();
+
+        /// <summary>
+        /// Ставит вью на раздачу отступов безопасной зоны. Вызывается при монтировании,
+        /// ровно один раз на вью. Текущие отступы применяются сразу — иначе вью, смонтированное
+        /// после последнего изменения экрана, ждало бы следующего.
+        /// </summary>
+        internal void RegisterSafeArea(ViewRoot view)
+        {
+            if (view == null || view.Safe == null) return;
+
+            _safeAreaViews.Add(view);
+
+            if (!ScreenMetrics.HasValue) return;
+            var i = ScreenMetrics.Insets;
+            view.ApplySafeInsets(i.Left, i.Right, i.Top, i.Bottom);
+        }
+
+        /// <inheritdoc cref="RegisterSafeArea(ViewRoot)"/>
+        internal void RegisterSafeArea(AppScreen screen)
+        {
+            if (screen == null) return;
+
+            _safeAreaScreens.Add(screen);
+
+            if (!ScreenMetrics.HasValue) return;
+            var i = ScreenMetrics.Insets;
+            screen.ApplySafeInsets(i.Left, i.Right, i.Top, i.Bottom);
+        }
 
         /// <summary>
         /// Снимает референсное разрешение и подставляет панели рантайм-копию настроек.
@@ -138,14 +179,23 @@ namespace Exerussus.AppCore
             var bar = ScreenMetrics.FrameBar;
             var insets = ScreenMetrics.Insets;
 
-            // Сдвигаем сам контейнер, а НЕ раздаём ему padding. Padding здесь не работает:
-            // у абсолютно спозиционированных детей (а все три слоя такие) точка отсчёта —
-            // padding box родителя, и отступ лежит ВНУТРИ него. Слои с left:0 встали бы
-            // по внутренней границе рамки, а не отступа, и содержимое уехало бы под поля кадра.
-            _contentRoot.style.left = bar + insets.Left;
-            _contentRoot.style.right = bar + insets.Right;
-            _contentRoot.style.top = insets.Top;
-            _contentRoot.style.bottom = insets.Bottom;
+            // contentRoot вжимается ТОЛЬКО полем кадра: это полоса, а не безопасная зона.
+            // Безопасную зону получают отдельные слои внутри каждого вью — иначе фон страницы
+            // не смог бы доходить до выреза.
+            // Сдвигаем границами, а не padding: у абсолютно спозиционированных детей точка
+            // отсчёта — padding box родителя, и отступ лежит ВНУТРИ него.
+            _contentRoot.style.left = bar;
+            _contentRoot.style.right = bar;
+            _contentRoot.style.top = 0;
+            _contentRoot.style.bottom = 0;
+
+            // Безопасные слои: один проход по реестру смонтированных вью, только по факту
+            // изменения экрана. Список короткий (страницы, попапы, скрины) и только растёт.
+            for (var i = 0; i < _safeAreaViews.Count; i++)
+                _safeAreaViews[i].ApplySafeInsets(insets.Left, insets.Right, insets.Top, insets.Bottom);
+
+            for (var i = 0; i < _safeAreaScreens.Count; i++)
+                _safeAreaScreens[i].ApplySafeInsets(insets.Left, insets.Right, insets.Top, insets.Bottom);
 
             if (_frameMaskLeft == null || _frameMaskRight == null) return;
 

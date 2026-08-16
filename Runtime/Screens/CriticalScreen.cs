@@ -58,7 +58,7 @@ namespace Exerussus.AppCore.Screens
             }
             else
             {
-                Debug.LogError("[CriticalScreen] visualTree задан без CriticalScreenController — нечем показать сообщение. Либо назначьте контроллер, либо оставьте visualTree пустым для дефолтного оверлея.");
+                Debug.LogError("[CriticalScreen] вёрстка задана без CriticalScreenController — нечем показать сообщение. Либо назначьте контроллер, либо оставьте fullTree и safeTree пустыми для дефолтного оверлея.");
             }
         }
 
@@ -100,10 +100,12 @@ namespace Exerussus.AppCore.Screens
         private Label _messageLabel;
         private Button _rebootButton;
 
-        protected override VisualElement BuildFallback()
-        {
-            var dimmer = BuildDimmer();
+        // Затемнение — во всю полосу кадра, чтобы доходило до выреза.
+        protected override VisualElement BuildFallbackBackdrop() => BuildDimmer();
 
+        // Текст и кнопки — в безопасную зону, поверх затемнения.
+        protected override VisualElement BuildFallbackContent()
+        {
             var box = BuildContentBox();
 
             _messageLabel = BuildMessageLabel(string.Empty);
@@ -122,8 +124,7 @@ namespace Exerussus.AppCore.Screens
             row.Add(quitButton);
 
             box.Add(row);
-            dimmer.Add(box);
-            return dimmer;
+            return box;
         }
     }
 }

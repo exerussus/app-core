@@ -1,4 +1,4 @@
-﻿using Cysharp.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Audio;
@@ -10,15 +10,26 @@ namespace Exerussus.AppCore.Views
     /// Базовый класс попапа для UI Toolkit.
     /// Монтируется в popupsLayer поверх страниц как абсолютный оверлей.
     /// </summary>
+    /// <remarks>
+    /// Вёрстка, как и у страницы, разделена: диммер и затемнение — в <c>fullTree</c>, иначе
+    /// у выреза останется незатемнённая полоска; содержимое попапа — в <c>safeTree</c>.
+    /// </remarks>
     public class AppPopup : MonoBehaviour, IAppView
     {
         [SerializeField] private string popupId;
-        [SerializeField] private VisualTreeAsset visualTree;
+
+        [Tooltip("Вёрстка во всю полосу кадра: диммер, затемнение фона. Необязательна.")]
+        [SerializeField] private VisualTreeAsset fullTree;
+
+        [Tooltip("Вёрстка внутри безопасной зоны: содержимое попапа. Необязательна.")]
+        [SerializeField] private VisualTreeAsset safeTree;
+
         [SerializeField] private UISoundLibrary overrideSoundLibrary;
         [SerializeField] private AppPopupController controller;
 
         private bool _hasController;
 
+        private readonly ViewRoot _view = new();
         private readonly FragmentSlots _fragments = new();
 
         public PopupId PopupUid { get; private set; }
@@ -30,7 +41,13 @@ namespace Exerussus.AppCore.Views
         /// <summary>Своя библиотека звуков попапа. Пусто — берётся общая из <see cref="AppRunner"/>.</summary>
         public UISoundLibrary OverrideSoundLibrary => overrideSoundLibrary;
 
-        public TemplateContainer Root { get; private set; }
+        public VisualElement Root => _view.Root;
+
+        /// <summary>Слой полноэкранной вёрстки. Null, если дерево не задано.</summary>
+        public VisualElement FullRoot => _view.Full;
+
+        /// <summary>Слой безопасной зоны. Null, если дерево не задано.</summary>
+        public VisualElement SafeRoot => _view.Safe;
 
         /// <summary>Монтирует попап в слой (при первом вызове) и показывает его.</summary>
         /// <returns><c>true</c>, если попап смонтирован именно сейчас (первый раз).</returns>
@@ -38,18 +55,20 @@ namespace Exerussus.AppCore.Views
         {
             var isNew = false;
 
-            if (Root == null)
+            if (!_view.IsBuilt)
             {
+                if (!_view.Build(popupId, fullTree, safeTree))
+                {
+                    Debug.LogError($"[AppCore] Попапу \"{popupId}\" не задано ни одного VisualTreeAsset.");
+                    return false;
+                }
+
                 isNew = true;
-                Root = visualTree.Instantiate();
-                Root.name = popupId;
-                Root.style.position = Position.Absolute;
-                Root.style.left = 0;
-                Root.style.right = 0;
-                Root.style.top = 0;
-                Root.style.bottom = 0;
                 parent.Add(Root);
+
                 if (_hasController) controller.Root = Root;
+
+                AppRunner?.RegisterSafeArea(_view);
                 _fragments.CollectHosts(Root, AppRunner);
             }
 

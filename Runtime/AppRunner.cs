@@ -313,9 +313,24 @@ namespace Exerussus.AppCore
             root.Add(_frameMaskRight);
 
             // Монтируем все скрины сразу, до старта boot-машины, а не при первом показе.
-            if (_hasScreen) loadingScreen.Mount(_screensLayer);
-            if (_hasErrorScreen) errorScreen.Mount(_screensLayer);
-            if (_hasCriticalScreen) criticalScreen.Mount(_screensLayer);
+            // Ссылку на раннер проставляем ДО Mount: внутри него идёт регистрация безопасной зоны.
+            if (_hasScreen)
+            {
+                loadingScreen.AppRunner = this;
+                loadingScreen.Mount(_screensLayer);
+            }
+
+            if (_hasErrorScreen)
+            {
+                errorScreen.Mount(_screensLayer);
+                RegisterSafeArea(errorScreen);
+            }
+
+            if (_hasCriticalScreen)
+            {
+                criticalScreen.Mount(_screensLayer);
+                RegisterSafeArea(criticalScreen);
+            }
         }
 
         private VisualElement CreateFrameMask(string name, bool left)
