@@ -1,31 +1,32 @@
 using Cysharp.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UIElements;
-using Exerussus.AppCore.Audio;
 using Exerussus.AppCore.Navigation;
 
 namespace Exerussus.AppCore.Views
 {
     /// <summary>
-    /// Базовый класс попапа для UI Toolkit.
-    /// Монтируется в popupsLayer поверх страниц как абсолютный оверлей.
+    /// Попап для UI Toolkit. Монтируется в popupsLayer поверх страниц как абсолютный оверлей.
     /// </summary>
     /// <remarks>
-    /// Вёрстка, как и у страницы, разделена: диммер и затемнение — в <c>fullTree</c>, иначе
-    /// у выреза останется незатемнённая полоска; содержимое попапа — в <c>safeTree</c>.
+    /// Привязка та же, что у страницы: имя GameObject — id, вёрстка —
+    /// <c>Assets/App/Popups/&lt;Type&gt;/&lt;id&gt;.uxml</c>, контроллер — <c>&lt;Type&gt;PopupController</c>.
+    /// Диммер кладётся в <see cref="FullLayer"/> (иначе у выреза останется незатемнённая
+    /// полоска), содержимое — в <see cref="SafeLayer"/>.
     /// </remarks>
+    [DisallowMultipleComponent]
     public class AppPopup : MonoBehaviour, IAppView
     {
         [SerializeField] private string popupId;
 
-        [Tooltip("Вёрстка во всю полосу кадра: диммер, затемнение фона. Необязательна.")]
-        [SerializeField] private VisualTreeAsset fullTree;
+        [SerializeField] private VisualTreeAsset visualTree;
 
-        [Tooltip("Вёрстка внутри безопасной зоны: содержимое попапа. Необязательна.")]
-        [SerializeField] private VisualTreeAsset safeTree;
-
-        [SerializeField] private UISoundLibrary overrideSoundLibrary;
         [SerializeField] private AppPopupController controller;
+
+        // Наследие 3.x: вёрстка из двух файлов. Читается только миграцией в редакторе.
+        [SerializeField, HideInInspector, FormerlySerializedAs("fullTree")] private VisualTreeAsset legacyFullTree;
+        [SerializeField, HideInInspector, FormerlySerializedAs("safeTree")] private VisualTreeAsset legacySafeTree;
 
         private bool _hasController;
 
@@ -34,19 +35,18 @@ namespace Exerussus.AppCore.Views
 
         public PopupId PopupUid { get; private set; }
         public string PopupId => popupId;
+        public ViewKind Kind => ViewKind.Popup;
+        public string ViewId => popupId;
         public AppPopupController Controller => controller;
         public bool HasController => _hasController;
         public AppRunner AppRunner { get; internal set; }
 
-        /// <summary>Своя библиотека звуков попапа. Пусто — берётся общая из <see cref="AppRunner"/>.</summary>
-        public UISoundLibrary OverrideSoundLibrary => overrideSoundLibrary;
-
         public VisualElement Root => _view.Root;
 
-        /// <summary>Слой полноэкранной вёрстки. Null, если дерево не задано.</summary>
+        /// <summary>Слой полноэкранной вёрстки. Null, если его нет в uxml.</summary>
         public VisualElement FullRoot => _view.Full;
 
-        /// <summary>Слой безопасной зоны. Null, если дерево не задано.</summary>
+        /// <summary>Слой безопасной зоны. Null, если его нет в uxml.</summary>
         public VisualElement SafeRoot => _view.Safe;
 
         /// <summary>Монтирует попап в слой (при первом вызове) и показывает его.</summary>
@@ -57,9 +57,12 @@ namespace Exerussus.AppCore.Views
 
             if (!_view.IsBuilt)
             {
-                if (!_view.Build(popupId, fullTree, safeTree))
+                if (!_view.Build(popupId, visualTree))
                 {
-                    Debug.LogError($"[AppCore] Попапу \"{popupId}\" не задано ни одного VisualTreeAsset.");
+                    if (legacyFullTree != null || legacySafeTree != null)
+                        Debug.LogError($"[AppCore] Попап \"{popupId}\" ещё на двух файлах вёрстки (3.x). Запустите Exerussus/App/Migrate to 4.0.", this);
+                    else
+                        Debug.LogError($"[AppCore] Попапу \"{popupId}\" не задана вёрстка.", this);
                     return false;
                 }
 
@@ -78,7 +81,7 @@ namespace Exerussus.AppCore.Views
 
         public void Unmount()
         {
-            Root.style.display = DisplayStyle.None;
+            if (Root != null) Root.style.display = DisplayStyle.None;
         }
 
         public void PreInitialize()

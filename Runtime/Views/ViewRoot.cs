@@ -1,27 +1,27 @@
+using System.Collections.Generic;
 using UnityEngine.UIElements;
 
 namespace Exerussus.AppCore.Views
 {
     /// <summary>
-    /// Обёртка вью: корень во всю полосу кадра плюс два слоя внутри.
+    /// Обёртка вью: корень во всю полосу кадра и два слоя внутри — <see cref="FullLayer"/>
+    /// и <see cref="SafeLayer"/>.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Полноэкранная вёрстка и вёрстка безопасной зоны — это два РАЗНЫХ дерева, а не один
-    /// UXML с отступами. Фон, диммер и всё, что обязано доходить до выреза, живёт в
-    /// <see cref="Full"/>; интерактив и текст — в <see cref="Safe"/>, которому
-    /// <see cref="AppRunner"/> раздаёт отступы безопасной зоны.
+    /// Вёрстка вью — ОДИН uxml. На верхнем уровне в нём лежат слои: всё, что обязано доходить
+    /// до выреза, — в <see cref="FullLayer"/>, интерактив и текст — в <see cref="SafeLayer"/>.
+    /// Любой из слоёв можно опустить. Uxml вовсе без слоёв целиком считается безопасным:
+    /// его содержимое переезжает в неявный <see cref="SafeLayer"/>.
+    /// </para>
+    /// <para>
+    /// Дерево разворачивается прямо в корень (<c>CloneTree(Root)</c>), а не в отдельный
+    /// <c>TemplateContainer</c>: так стили из <c>&lt;Style&gt;</c> uxml висят на корне и видны
+    /// обоим слоям, а <c>Root.Q</c> одним проходом находит элементы в любом из них.
     /// </para>
     /// <para>
     /// «Во весь экран» здесь означает «во всю полосу кадра», а не весь физический экран:
-    /// за полосой лежат чёрные поля обрезки, они рисуются поверх всего намеренно,
-    /// и содержимому вью там делать нечего.
-    /// </para>
-    /// <para>
-    /// Корень — обычный <c>VisualElement</c>, а не <c>TemplateContainer</c>: деревьев теперь
-    /// два, и ни одно из них не является корнем. Зато <c>Root.Q</c> видит оба сразу, поэтому
-    /// хуки, кнопки и хосты фрагментов ищутся одним проходом независимо от того, в каком
-    /// слое их положил автор вёрстки.
+    /// за полосой лежат чёрные поля обрезки, они рисуются поверх всего намеренно.
     /// </para>
     /// </remarks>
     public sealed class ViewRoot
@@ -29,38 +29,52 @@ namespace Exerussus.AppCore.Views
         /// <summary>Корень вью. Занимает всю полосу кадра.</summary>
         public VisualElement Root { get; private set; }
 
-        /// <summary>Слой полноэкранной вёрстки. <c>null</c>, если дерево не задано.</summary>
+        /// <summary>Слой полноэкранной вёрстки. <c>null</c>, если в uxml его нет.</summary>
         public VisualElement Full { get; private set; }
 
-        /// <summary>Слой безопасной зоны. <c>null</c>, если дерево не задано.</summary>
+        /// <summary>Слой безопасной зоны. <c>null</c>, если в uxml его нет.</summary>
         public VisualElement Safe { get; private set; }
 
         public bool IsBuilt => Root != null;
 
-        /// <summary>
-        /// Собирает обёртку и разворачивает в неё заданные деревья.
-        /// Порядок добавления и есть порядок отрисовки: полноэкранное под безопасным.
-        /// </summary>
-        /// <returns><c>false</c>, если не задано ни одного дерева — вью без вёрстки бессмысленно.</returns>
-        public bool Build(string name, VisualTreeAsset fullTree, VisualTreeAsset safeTree)
+        /// <summary>Собирает обёртку и разворачивает в неё вёрстку.</summary>
+        /// <returns><c>false</c>, если вёрстка не задана — вью без вёрстки бессмысленно.</returns>
+        public bool Build(string name, VisualTreeAsset tree)
         {
             if (IsBuilt) return true;
-            if (fullTree == null && safeTree == null) return false;
+            if (tree == null) return false;
 
-            Root = new VisualElement { name = name };
-            Root.style.position = Position.Absolute;
-            Root.style.left = 0;
-            Root.style.right = 0;
-            Root.style.top = 0;
-            Root.style.bottom = 0;
-            // Обёртка не должна быть целью пика: иначе полноэкранный элемент съедает указатель
-            // и до world-space панелей события не доходят. Ignore не наследуется — дети пикаются.
-            Root.pickingMode = PickingMode.Ignore;
-
-            if (fullTree != null) Full = AddLayer(name + "__full", fullTree);
-            if (safeTree != null) Safe = AddLayer(name + "__safe", safeTree);
-
+            Root = CreateRoot(name);
+            tree.CloneTree(Root);
+            ResolveLayers(name);
             return true;
+        }
+
+        /// <summary>
+        /// Собирает обёртку из готовых слоёв, построенных кодом (фолбэк скринов).
+        /// <c>null</c>-слой пропускается.
+        /// </summary>
+        public void BuildFromContent(string name, VisualElement fullContent, VisualElement safeContent)
+        {
+            if (IsBuilt) return;
+
+            Root = CreateRoot(name);
+
+            if (fullContent != null)
+            {
+                Full = new FullLayer { name = name + "__full" };
+                fullContent.style.flexGrow = 1;
+                Full.Add(fullContent);
+                Root.Add(Full);
+            }
+
+            if (safeContent != null)
+            {
+                Safe = new SafeLayer { name = name + "__safe" };
+                safeContent.style.flexGrow = 1;
+                Safe.Add(safeContent);
+                Root.Add(Safe);
+            }
         }
 
         /// <summary>
@@ -77,23 +91,68 @@ namespace Exerussus.AppCore.Views
             Safe.style.bottom = bottom;
         }
 
-        private VisualElement AddLayer(string layerName, VisualTreeAsset tree)
+        private static VisualElement CreateRoot(string name)
         {
-            var layer = new VisualElement { name = layerName };
-            layer.style.position = Position.Absolute;
-            layer.style.left = 0;
-            layer.style.right = 0;
-            layer.style.top = 0;
-            layer.style.bottom = 0;
-            layer.pickingMode = PickingMode.Ignore;
+            var root = new VisualElement { name = name };
+            root.style.position = Position.Absolute;
+            root.style.left = 0;
+            root.style.right = 0;
+            root.style.top = 0;
+            root.style.bottom = 0;
+            // Обёртка не должна быть целью пика: иначе полноэкранный элемент съедает указатель
+            // и до world-space панелей события не доходят. Ignore не наследуется — дети пикаются.
+            root.pickingMode = PickingMode.Ignore;
+            return root;
+        }
 
-            var instance = tree.Instantiate();
-            instance.style.flexGrow = 1;
-            instance.pickingMode = PickingMode.Ignore;
-            layer.Add(instance);
+        /// <summary>
+        /// Находит слои среди прямых детей корня. Порядок отрисовки задаётся порядком в uxml,
+        /// но полноэкранный слой обязан лежать под безопасным — выравниваем явно.
+        /// </summary>
+        private void ResolveLayers(string name)
+        {
+            var loose = new List<VisualElement>();
 
-            Root.Add(layer);
-            return layer;
+            for (var i = 0; i < Root.childCount; i++)
+            {
+                var child = Root[i];
+
+                if (child is FullLayer full)
+                {
+                    if (Full == null) Full = full;
+                    else UnityEngine.Debug.LogError($"[AppCore] Во вью \"{name}\" больше одного FullLayer — лишний проигнорирован.");
+                }
+                else if (child is SafeLayer safe)
+                {
+                    if (Safe == null) Safe = safe;
+                    else UnityEngine.Debug.LogError($"[AppCore] Во вью \"{name}\" больше одного SafeLayer — лишний проигнорирован.");
+                }
+                else
+                {
+                    loose.Add(child);
+                }
+            }
+
+            // Элементы вне слоёв — вёрстка без разметки слоёв или забытый хвост. И то и другое
+            // трактуем как безопасную зону: текст под вырезом хуже, чем фон с отступом.
+            if (loose.Count > 0)
+            {
+                if (Safe == null)
+                {
+                    Safe = new SafeLayer();
+                    Root.Add(Safe);
+                }
+
+                foreach (var element in loose) Safe.Add(element);
+            }
+
+            if (Full != null)
+            {
+                if (string.IsNullOrEmpty(Full.name)) Full.name = name + "__full";
+                Full.SendToBack();
+            }
+
+            if (Safe != null && string.IsNullOrEmpty(Safe.name)) Safe.name = name + "__safe";
         }
     }
 }

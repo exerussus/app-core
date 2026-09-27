@@ -33,6 +33,9 @@ namespace Exerussus.AppCore
         /// <summary>Текущая активная страница. <c>null</c> до первого перехода.</summary>
         private AppPage _currentPage;
 
+        /// <summary>Текущая активная страница. <c>null</c> до стартовой навигации.</summary>
+        public AppPage CurrentPage => _currentPage;
+
         /// <summary>Страница, открываемая при старте приложения (первый элемент <see cref="allPages"/>).</summary>
         private AppPage _defaultPage;
 
@@ -89,16 +92,10 @@ namespace Exerussus.AppCore
             }
         }
 
-        
-        /// <summary>
-        /// Назначает страницу по умолчанию — ту, что открывается при старте и через
-        /// <see cref="SwitchToDefaultPage"/>.
-        /// </summary>
-        /// <remarks>Если страница с указанным <paramref name="pageUid"/> не найдена — вызов игнорируется с ошибкой в лог.</remarks>
-        /// <param name="pageUid">Идентификатор страницы, которая станет стартовой.</param>
         /// <summary>
         /// Монтирует страницу и добивает всё, что требует готовой вёрстки: безопасную зону,
-        /// Initialize контроллера, манипуляторы кнопок и событие <see cref="OnPageMounted"/>.
+        /// привязку элементов и Initialize контроллера, манипуляторы кнопок и событие
+        /// <see cref="OnPageMounted"/>.
         /// </summary>
         /// <remarks>
         /// Идемпотентно: вся работа выполняется только при первом монтировании, поэтому метод
@@ -108,11 +105,17 @@ namespace Exerussus.AppCore
         {
             if (!page.Mount(_pagesLayer)) return;
 
-            page.Controller?.Initialize();
+            if (page.HasController) page.Controller.Setup();
             RegisterAppView(page);
             OnPageMounted?.Invoke(page.PageUid, page.Root);
         }
 
+        /// <summary>
+        /// Назначает страницу по умолчанию — ту, что открывается при старте и через
+        /// <see cref="SwitchToDefaultPage"/>.
+        /// </summary>
+        /// <remarks>Если страница с указанным <paramref name="pageUid"/> не найдена — вызов игнорируется с ошибкой в лог.</remarks>
+        /// <param name="pageUid">Идентификатор страницы, которая станет стартовой.</param>
         public void SetDefaultPage(PageId pageUid)
         {
             if (!_pagesDict.TryGetValue(pageUid, out var page))

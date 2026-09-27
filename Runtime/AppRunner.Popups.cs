@@ -93,7 +93,7 @@ namespace Exerussus.AppCore
         {
             if (!popup.Mount(_popupsLayer)) return;
 
-            if (popup.HasController) popup.Controller.Initialize();
+            if (popup.HasController) popup.Controller.Setup();
             RegisterAppView(popup);
         }
 

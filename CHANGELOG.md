@@ -3,6 +3,44 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.0.0]
+
+Ломающий релиз. Переход: `Exerussus/App/Migrate to 4.0` (открытые сцены; повторный запуск безопасен).
+
+### Добавлено
+
+- **Папка `Assets/App` принадлежит AppCore.** Пути — константы `AppCorePaths`; `NavigationSettings`,
+  `BuildInfo`, `TextSettings` лежат в `Assets/App/Settings` в одном экземпляре, `AppRunner` берёт
+  ссылки сам.
+- **Жёсткая привязка вью к id.** Инспекторы `AppPage`/`AppPopup`/`AppFragment`: выбор id из реестра
+  (занятые скрыты), имя GameObject, вёрстка по пути и контроллер `<Type><Вид>Controller`
+  проставляются сами; генерация контроллера с довешиванием после компиляции.
+- **Поля элементов.** Контроллер `partial`, половина `.Elements.cs` с полями всех именованных
+  элементов перегенерируется на импорте uxml; привязка (`BindElements`) — до `Initialize`.
+- **Один uxml со слоями** `FullLayer` / `SafeLayer` вместо двух деревьев.
+- **Реестр фрагментов** в `NavigationSettings`, `FragmentId` в `NavTargets`, `[FragmentsDropdown]`.
+- **`AppSignals`** — строковая шина сигналов верхнего слоя, `SignalButton`, класс `signal-button`.
+- **`BuildInfo`** в AppCore: штамп вокруг билда, значения Play Mode, строка версии поверх
+  приложения (`AppRunner.VersionOverlay`), лог на старте.
+- **Текст:** `TextSettings`, запекание шрифтов, отчёт по всей цепочке, проверка перед билдом.
+- **Инструменты:** `Exerussus/App/Validate`, `Sync Views`, `Migrate to 4.0`.
+
+### Изменено
+
+- «Назад» и курсор — поля страницы (`PageBackAction`, `PageCursorMode`) вместо
+  `back__action-hook` / `setting__action-hook`.
+- `IAppManipulatorBuilder.OnBuildButtonManipulator(IAppView, Button)` — без `PayloadBuilder`.
+- `IAppView`: `Kind`, `ViewId`; `OverrideSoundLibrary` убран.
+- Дропдауны id рисуются обычным `PropertyDrawer` (без Odin).
+- `PanelRenderer`: версионированный колбэк перезагрузки UI.
+
+### Удалено
+
+- Звуки на USS-тегах (`sound-*`, `UISoundLibrary`, `SoundAdapter`, `PageSoundService`) —
+  звук вынесен в отдельный пакет `com.exerussus.audio`, AppCore о нём не знает.
+- `NavigationData` (id теперь в `NavigationSettings`), зависимости от `exerussus.signals`
+  и `exerussus.payloads`, `UISignal`, `ButtonPressed`, `PayloadBuilder`.
+
 ## [3.0.0]
 
 Ломающий релиз: **минимум Unity поднят с 2020.3 до 6000.5**. На более старых редакторах пакет

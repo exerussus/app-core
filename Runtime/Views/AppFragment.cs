@@ -1,7 +1,6 @@
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
-using Exerussus.AppCore.Audio;
 
 namespace Exerussus.AppCore.Views
 {
@@ -12,16 +11,21 @@ namespace Exerussus.AppCore.Views
     /// <remarks>
     /// <para>
     /// Фрагмент — полноценный <see cref="IAppView"/>, поэтому вся обвязка достаётся ему даром:
-    /// <c>AppRunner.RegisterAppView</c> обходит его кнопки и навешивает звуки, сигналы
-    /// и навигацию, а безопасная зона с кадром приходят сверху, с общего контейнера слоёв.
+    /// <c>AppRunner.RegisterAppView</c> обходит его кнопки и навешивает сигналы и навигацию,
+    /// а безопасная зона с кадром приходят сверху, от вью-хозяина.
     /// Отдельного механизма здесь нет — есть точка подстановки и правило переключения.
     /// </para>
     /// <para>
-    /// Что фрагменту НЕ достаётся: <c>back__action-hook</c> и настройки курсора. Их разбирает
-    /// <c>NavigatorService</c> по событию монтирования СТРАНИЦЫ — «назад» это свойство экрана,
-    /// а не его внутреннего состояния.
+    /// Что фрагменту НЕ достаётся: поведение «назад» и курсора. Это поля <see cref="AppPage"/> —
+    /// свойство экрана, а не его внутреннего состояния.
+    /// </para>
+    /// <para>
+    /// Привязка как у страницы: имя GameObject — id, вёрстка —
+    /// <c>Assets/App/Fragments/&lt;Type&gt;/&lt;id&gt;.uxml</c>, контроллер —
+    /// <c>&lt;Type&gt;FragmentController</c>. Слоёв у фрагмента нет: полноэкранность решает хост.
     /// </para>
     /// </remarks>
+    [DisallowMultipleComponent]
     public class AppFragment : MonoBehaviour, IAppView
     {
         [Tooltip("Идентификатор фрагмента. По нему вью его и разворачивает.")]
@@ -31,9 +35,6 @@ namespace Exerussus.AppCore.Views
         [SerializeField] private string hostId;
 
         [SerializeField] private VisualTreeAsset visualTree;
-
-        [Tooltip("Своя библиотека звуков. Пусто — берётся общая из AppRunner.")]
-        [SerializeField] private UISoundLibrary overrideSoundLibrary;
 
         [SerializeField] private AppFragmentController controller;
 
@@ -50,7 +51,8 @@ namespace Exerussus.AppCore.Views
         public AppFragmentController Controller => controller;
         public bool HasController => _hasController;
         public bool UnmountOnHide => unmountOnHide;
-        public UISoundLibrary OverrideSoundLibrary => overrideSoundLibrary;
+        public ViewKind Kind => ViewKind.Fragment;
+        public string ViewId => fragmentId;
 
         /// <summary>
         /// Корневой элемент. Null, пока фрагмент не смонтирован.
@@ -65,6 +67,7 @@ namespace Exerussus.AppCore.Views
         public void PreInitialize()
         {
             _hasController = controller != null;
+            if (_hasController) controller.Fragment = this;
             FragmentUid = new FragmentId(fragmentId);
         }
 
@@ -76,6 +79,12 @@ namespace Exerussus.AppCore.Views
         public bool Mount(VisualElement host)
         {
             if (Root != null) return false;
+
+            if (visualTree == null)
+            {
+                Debug.LogError($"[AppCore] Фрагменту \"{fragmentId}\" не задана вёрстка.", this);
+                return false;
+            }
 
             Root = visualTree.Instantiate();
             Root.name = fragmentId;
@@ -89,7 +98,7 @@ namespace Exerussus.AppCore.Views
             if (_hasController)
             {
                 controller.Root = Root;
-                controller.Initialize();
+                controller.Setup();
             }
 
             return true;

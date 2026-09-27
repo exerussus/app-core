@@ -58,7 +58,7 @@ namespace Exerussus.AppCore.Screens
             }
             else
             {
-                Debug.LogError("[CriticalScreen] вёрстка задана без CriticalScreenController — нечем показать сообщение. Либо назначьте контроллер, либо оставьте fullTree и safeTree пустыми для дефолтного оверлея.");
+                Debug.LogError("[CriticalScreen] вёрстка задана без CriticalScreenController — нечем показать сообщение. Либо назначьте контроллер, либо оставьте вёрстку пустой для дефолтного оверлея.");
             }
         }
 

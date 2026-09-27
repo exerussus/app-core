@@ -44,7 +44,7 @@ namespace Exerussus.AppCore.Screens
             }
             else
             {
-                Debug.LogError("[ErrorScreen] вёрстка задана без ErrorScreenController — нечем показать сообщение. Либо назначьте контроллер, либо оставьте fullTree и safeTree пустыми для дефолтного оверлея.");
+                Debug.LogError("[ErrorScreen] вёрстка задана без ErrorScreenController — нечем показать сообщение. Либо назначьте контроллер, либо оставьте вёрстку пустой для дефолтного оверлея.");
             }
         }
 

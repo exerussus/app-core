@@ -10,7 +10,7 @@ using Exerussus.AppCore.Navigation;
 using Exerussus.AppCore.Views;
 using Exerussus.AppCore.Screens;
 using Exerussus.AppCore.Services;
-using Exerussus.AppCore.Audio;
+using Exerussus.AppCore.Build;
 using Exerussus.AppCore.Input;
 using Exerussus.AppCore.Layout;
 using Object = UnityEngine.Object;
@@ -38,16 +38,16 @@ namespace Exerussus.AppCore
     [RequireComponent(typeof(PanelRenderer))]
     public partial class AppRunner : MonoBehaviour
     {
-        [Tooltip("Настройки навигации (PageId/PopupId и их генерация). ОБЯЗАТЕЛЕН: без него AppRunner не стартует.")]
+        [Tooltip("Реестр навигации. Проставляется автоматически из Assets/App/Settings/NavigationSettings.asset — руками не назначается.")]
         [FormerlySerializedAs("navigationSetting")]
         [SerializeField] private NavigationSettings navigationSettings;
+
+        [Tooltip("Информация о сборке и строка версии. Проставляется автоматически из Assets/App/Settings/BuildInfo.asset.")]
+        [SerializeField] private BuildInfo buildInfo;
 
         [Tooltip("Реестр внешних (проектных) сервисов приложения. Необязателен: если пуст, поднимаются только внутренние сервисы.")]
         [FormerlySerializedAs("appServiceRegister")]
         [SerializeField] private AppServiceRegistry appServiceRegistry;
-
-        [Tooltip("Адаптер UI-звуков. Необязателен: если не задан, в контейнер зависимостей не регистрируется, а страницы работают без звука.")]
-        [SerializeField] private SoundAdapter soundAdapter;
 
         [Tooltip("Адаптер ввода. Необязателен: если не задан, в контейнер зависимостей не регистрируется.")]
         [SerializeField] private InputAdapter inputAdapter;
@@ -86,11 +86,7 @@ namespace Exerussus.AppCore
         [Tooltip("Опциональный бутстраппер: PreInitialize вызывается до инициализации сервисов, PostInitialize — после. Можно оставить пустым.")]
         [SerializeField] private AppBootstrapper bootstrapper;
 
-        
-        [Tooltip("Опциональная библиотека звуков: при назначении реализует проигрыш звук на страницах через uss классы. Можно оставить пустым.")]
-        [SerializeField] private UISoundLibrary uiSoundLibrary;
 
-        
         /// <summary>
         /// Объекты, которые будут зарегистрированы в контейнере зависимостей как общие сервисы.
         /// Если объект реализует <see cref="IInitializable"/>, его метод
@@ -164,8 +160,14 @@ namespace Exerussus.AppCore
         {
             if (navigationSettings == null)
             {
-                Debug.LogError($"Navigation settings is null. Please, set NavigationSettings asset.");
+                Debug.LogError($"[AppCore] Нет NavigationSettings. Ассет должен лежать в {AppCorePaths.NavigationSettingsPath} — откройте сцену в редакторе, ссылка проставится сама.", this);
                 return;
+            }
+
+            if (buildInfo != null)
+            {
+                BuildInfo.SetCurrent(buildInfo);
+                if (buildInfo.LogOnStart) Debug.Log($"[AppCore] Сборка: {buildInfo.Format(buildInfo.OverlayFormat)} ({buildInfo.FullVersion})");
             }
 
             _mainThreadId = Thread.CurrentThread.ManagedThreadId;
@@ -180,7 +182,7 @@ namespace Exerussus.AppCore
             // Reload). Сбрасываем, чтобы отступы пересчитались под панель именно этой сцены.
             ScreenMetrics.Invalidate();
 
-            if (navigationSettings != null) NavigationLink.Initialize(navigationSettings);
+            NavigationLink.Initialize(navigationSettings);
             
             _bootCts = new CancellationTokenSource();
             
@@ -190,8 +192,6 @@ namespace Exerussus.AppCore
             _container.Add(this);
             _container.Add(_container);
 
-            if (soundAdapter != null) _container.Add(typeof(SoundAdapter), soundAdapter);
-            if (uiSoundLibrary != null) _container.Add(uiSoundLibrary);
             if (inputAdapter != null) _container.Add(typeof(InputAdapter), inputAdapter);
             
             allPages = GetComponentsInChildren<AppPage>();
@@ -241,7 +241,7 @@ namespace Exerussus.AppCore
         /// Корень панели готов. Вызывается на OnEnable и на каждом LiveReload вёрстки; строим
         /// ровно один раз — повторные вызовы отсекаются <see cref="_uiBuilt"/>.
         /// </summary>
-        private void OnUIReload(PanelRenderer renderer, VisualElement root)
+        private void OnUIReload(PanelRenderer renderer, VisualElement root, int version)
         {
             if (_uiBuilt || _isDestroyed || root == null) return;
             _uiBuilt = true;
@@ -312,6 +312,9 @@ namespace Exerussus.AppCore
             root.Add(_frameMaskLeft);
             root.Add(_frameMaskRight);
 
+            // Строка версии — внутри полосы кадра, поверх всего содержимого, включая скрины.
+            SetupVersionOverlay();
+
             // Монтируем все скрины сразу, до старта boot-машины, а не при первом показе.
             // Ссылку на раннер проставляем ДО Mount: внутри него идёт регистрация безопасной зоны.
             if (_hasScreen)
@@ -346,14 +349,6 @@ namespace Exerussus.AppCore
             mask.style.display = DisplayStyle.None;
             return mask;
         }
-
-        // /// <summary>
-        // /// Запускает переход на страницу по умолчанию с имитацией экрана загрузки длительностью 1 секунду.
-        // /// </summary>
-        // private void Start()
-        // {
-        //     SwitchWithFakeLoading(_defaultPage.PageType, 1f).Forget(Debug.LogException);
-        // }
 
         /// <summary>
         /// Очищает контекст приложения при уничтожении объекта в редакторе.

@@ -1,16 +1,19 @@
 ﻿using UnityEngine.UIElements;
-using Exerussus.AppCore.Audio;
 
 namespace Exerussus.AppCore.Views
 {
     public interface IAppView
     {
         /// <summary>
-        /// Корень вью. Со сплитом вёрстки на полноэкранную и безопасную это обёртка
-        /// (<c>VisualElement</c>), а не <c>TemplateContainer</c>: деревьев внутри может быть два.
-        /// Поиск по нему видит оба слоя сразу.
+        /// Корень вью. Это обёртка (<c>VisualElement</c>), внутри которой лежат слои
+        /// <see cref="FullLayer"/> и <see cref="SafeLayer"/>. Поиск по нему видит оба слоя сразу.
         /// </summary>
-        public VisualElement Root { get;}
-        public UISoundLibrary OverrideSoundLibrary { get;}
+        public VisualElement Root { get; }
+
+        /// <summary>Вид вью.</summary>
+        public ViewKind Kind { get; }
+
+        /// <summary>Строковый id вью — тот, что лежит в реестре NavigationSettings.</summary>
+        public string ViewId { get; }
     }
 }

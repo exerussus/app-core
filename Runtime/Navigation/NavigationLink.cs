@@ -1,15 +1,18 @@
 ﻿using System.Collections.Generic;
-using Exerussus.Payloads;
-using UnityEngine;
 
 namespace Exerussus.AppCore.Navigation
 {
+    /// <summary>
+    /// Рантайм-таблица навигационных классов: «USS-класс кнопки → страница или попап».
+    /// Собирается один раз из <see cref="NavigationSettings"/> при старте <see cref="AppRunner"/>.
+    /// </summary>
     internal static class NavigationLink
     {
+        /// <summary>Класс «назад»: возврат на предыдущую страницу (или закрытие попапа).</summary>
+        public const string BackClass = "to-back-page__navigation";
+
         private static readonly Dictionary<string, PageId> _linksPages = new();
         private static readonly Dictionary<string, PopupId> _linksPopups = new();
-        
-        public static readonly long NavigateToKey = Payload.Uid("navigate-to");
 
         // Отдаём конкретный Dictionary, а не IReadOnlyDictionary: через интерфейс foreach
         // боксит структурный энумератор, а эти словари обходятся на каждую кнопку каждой
@@ -23,7 +26,7 @@ namespace Exerussus.AppCore.Navigation
             _linksPopups.Clear();
 
             if (navigationSettings == null) return;
-            
+
             // Обход по индексу: Entries отдаётся как IReadOnlyList, и foreach по нему
             // забоксил бы энумератор.
             var entries = navigationSettings.Entries;
@@ -35,24 +38,10 @@ namespace Exerussus.AppCore.Navigation
                 if (string.IsNullOrEmpty(entry.ClassName)) continue;
 
                 // Один-к-одному гарантирует редактор. Здесь присваивание по индексатору,
-                // а не Add: дубликат класса — повод перезаписать, а не уронить приложение
-                // на старте (Add бросил бы исключение вопреки задуманной страховке).
+                // а не Add: дубликат класса — повод перезаписать, а не уронить приложение.
                 if (entry.Kind == NavigationSettings.EntryKind.Page) _linksPages[entry.ClassName] = new PageId(entry.Page);
                 else if (entry.Kind == NavigationSettings.EntryKind.Popup) _linksPopups[entry.ClassName] = new PopupId(entry.Page);
             }
         }
-        
-#if UNITY_EDITOR
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void RegisterDebug()
-        {
-            Payload.RegisterDebugFormatter(NavigateToKey, v =>
-            {
-                if (v == 0) return "invalid";
-                if (v > 0) return PageId.FromRaw(v).ToString();
-                return PopupId.FromRaw(v).ToString();
-            });
-        }
-#endif
     }
 }

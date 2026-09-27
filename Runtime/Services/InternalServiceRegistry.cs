@@ -1,5 +1,4 @@
 ﻿using Exerussus.AppCore.Navigation;
-using Exerussus.AppCore.Audio;
 
 namespace Exerussus.AppCore.Services
 {
@@ -10,8 +9,7 @@ namespace Exerussus.AppCore.Services
             return new IAppService[]
             {
                 new NavigatorService(),
-                new PageSoundService(),
             };
         }
-    }   
+    }
 }

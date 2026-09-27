@@ -6,41 +6,37 @@ using Exerussus.AppCore.Signals;
 namespace Exerussus.AppCore
 {
     /// <summary>
-    /// Сборка манипуляторов для страниц и попапов.
+    /// Обвязка вёрстки вью: кнопки-сигналы и манипуляторы сервисов.
     /// </summary>
     public partial class AppRunner
     {
-        internal IAppManipulatorBuilder[] _appManipulatorBuilders;
+        internal const string SignalButtonClass = "signal-button";
 
-        private readonly PayloadBuilder _payloadBuilder = new();
+        internal IAppManipulatorBuilder[] _appManipulatorBuilders = System.Array.Empty<IAppManipulatorBuilder>();
 
         /// <summary>
-        /// Навешивает манипуляторы на кнопки вью (страницы или попапа).
-        /// Вызывается один раз на вью — при первой активации страницы или первом монтировании попапа.
+        /// Навешивает поведение на кнопки вью (страницы, попапа или фрагмента).
+        /// Вызывается один раз на фактическое монтирование вёрстки.
         /// </summary>
         internal void RegisterAppView(IAppView appView)
         {
-            // Проход по кнопкам не зависит от библиотеки звуков: тот же цикл строит навигационные
-            // манипуляторы. Решение «есть ли звук» принимает звуковой сервис внутри себя.
+            if (appView?.Root == null) return;
+
             appView.Root.Query<Button>().ForEach(btn =>
             {
-                foreach (var builder in _appManipulatorBuilders)
+                for (var i = 0; i < _appManipulatorBuilders.Length; i++)
+                    _appManipulatorBuilders[i].OnBuildButtonManipulator(appView, btn);
+
+                // SignalButton поднимает сигнал сам; класс нужен обычным кнопкам.
+                if (btn is not SignalButton && btn.ClassListContains(SignalButtonClass))
                 {
-                    builder.OnBuildButtonManipulator(appView, btn, _payloadBuilder);
+                    var id = btn.name;
+                    if (!string.IsNullOrEmpty(id)) btn.clicked += () => AppSignals.Raise(id);
                 }
-
-                // Скоуп пейлоада закрываем на КАЖДОЙ кнопке, даже если её никто не пометил:
-                // иначе недозабранный пейлоад утёк бы в следующую кнопку и переписал ей цель.
-                var payload = _payloadBuilder.End();
-
-                if (btn.ClassListContains("signal-button")) btn.AddManipulator(new SignalClickManipulator(payload));
-                else if (payload.IsValid()) payload.Dispose();
             });
 
-            foreach (var builder in _appManipulatorBuilders)
-            {
-                builder.OnBuildManipulators(appView);
-            }
+            for (var i = 0; i < _appManipulatorBuilders.Length; i++)
+                _appManipulatorBuilders[i].OnBuildManipulators(appView);
         }
     }
 }

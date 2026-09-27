@@ -1,6 +1,8 @@
 ﻿using Cysharp.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Views;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -9,18 +11,20 @@ namespace Exerussus.AppCore.Screens
     /// </summary>
     public class LoadingScreen : MonoBehaviour
     {
-        [Tooltip("Вёрстка во всю полосу кадра: заливка/фон экрана загрузки. Необязательна.")]
-        [SerializeField] private VisualTreeAsset fullTree;
+        [Tooltip("Вёрстка экрана загрузки: один uxml со слоями FullLayer (заливка, фон) и SafeLayer (логотип, прогресс, подписи).")]
+        [SerializeField] private VisualTreeAsset visualTree;
 
-        [Tooltip("Вёрстка внутри безопасной зоны: логотип, прогресс, подписи. Необязательна.")]
-        [SerializeField] private VisualTreeAsset safeTree;
         [SerializeField] private LoadingScreenController loadingScreenController;
+
+        // Наследие 3.x: вёрстка из двух файлов. Читается только миграцией в редакторе.
+        [SerializeField, HideInInspector, FormerlySerializedAs("fullTree")] private VisualTreeAsset legacyFullTree;
+        [SerializeField, HideInInspector, FormerlySerializedAs("safeTree")] private VisualTreeAsset legacySafeTree;
         
         [SerializeField, Tooltip("Дефолтное время затухания при отсутствии контроллера")] 
         private float fadeSeconds = 0.5f;
         
         private VisualElement _parent;
-        private readonly Exerussus.AppCore.Views.ViewRoot _view = new();
+        private readonly ViewRoot _view = new();
         private VisualElement _root;
         private bool _hasController;
         private bool _isInitialized;
@@ -40,9 +44,11 @@ namespace Exerussus.AppCore.Screens
             if (_isInitialized) return false;
             _isInitialized = true;
 
-            if (!_view.Build(nameof(LoadingScreen), fullTree, safeTree))
+            if (!_view.Build(nameof(LoadingScreen), visualTree))
             {
-                Debug.LogError("[AppCore] LoadingScreen: не задано ни одного VisualTreeAsset.");
+                Debug.LogError(legacyFullTree != null || legacySafeTree != null
+                    ? "[AppCore] LoadingScreen ещё на двух файлах вёрстки (3.x). Запустите Exerussus/App/Migrate to 4.0."
+                    : "[AppCore] LoadingScreen: не задана вёрстка.", this);
                 return false;
             }
 
@@ -61,6 +67,7 @@ namespace Exerussus.AppCore.Screens
         {
             gameObject.SetActive(true);
             Mount(parent);
+            if (_root == null) return;   // вёрстки нет — показывать нечего, ошибка уже в логе
             _root.style.display = DisplayStyle.Flex;
 
             // Флаг поднимаем до анимации: иначе параллельный запрос навигации увидит
@@ -96,7 +103,7 @@ namespace Exerussus.AppCore.Screens
             }
             
             gameObject.SetActive(false);
-            _root.style.display = DisplayStyle.None;
+            if (_root != null) _root.style.display = DisplayStyle.None;
             IsVisible = false;
         }
 

@@ -21,7 +21,7 @@ namespace Exerussus.AppCore.Navigation
 #endif
         }
 
-        // private — обернуть уже готовый long (например, прочитанный обратно из Payload).
+        // private — обернуть уже готовый long (например, сохранённый ранее как число).
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private PageId(long id) => Id = id;
 

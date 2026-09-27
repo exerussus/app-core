@@ -1,116 +1,98 @@
-﻿#if UNITY_EDITOR
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Exerussus.AppCore.Navigation;
-using Sirenix.OdinInspector.Editor;
-using Sirenix.Utilities.Editor;
+﻿using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.UIElements;
+using Exerussus.AppCore.Views;
 
 namespace Exerussus.AppCore.Editor
 {
     /// <summary>
-    /// Выделенный drawer для string-полей с [PagesDropdown] или [PopupsDropdown].
-    /// Самодостаточен: значения тянет из NavigationData напрямую, без общего
-    /// DropdownValueProviderRegistry. По структуре — как BaseDropdownDrawer.
-    ///
-    /// OdinValueDrawer + CanDrawValueProperty (а не OdinAttributeDrawer), потому что
-    /// поле может нести несколько атрибутов, и так надёжнее цепляться по факту наличия.
+    /// Выпадающий список id для string-полей с <c>[PagesDropdown]</c>, <c>[PopupsDropdown]</c>
+    /// и <c>[FragmentsDropdown]</c>. Значения берёт из единственного <c>NavigationSettings</c>.
     /// </summary>
-    [DrawerPriority(DrawerPriorityLevel.AttributePriority)]
-    public sealed class NavigationIdDrawer : OdinValueDrawer<string>
+    [CustomPropertyDrawer(typeof(PagesDropdownAttribute))]
+    [CustomPropertyDrawer(typeof(PopupsDropdownAttribute))]
+    [CustomPropertyDrawer(typeof(FragmentsDropdownAttribute))]
+    public sealed class NavigationIdDrawer : PropertyDrawer
     {
-        private Func<IEnumerable<string>> _provider;
-        private string[] _cachedValues;
-        private double _lastCacheTime = -1;
-        private const double CacheLifetimeSeconds = 2.0;
+        private const string NoneLabel = "(None)";
 
-        // Применяем drawer, только если на поле есть [PagesDropdown] или [PopupsDropdown].
-        protected override bool CanDrawValueProperty(InspectorProperty property)
+        private ViewKind Kind => attribute switch
         {
-            return property.Attributes.OfType<PagesDropdownAttribute>().Any()
-                || property.Attributes.OfType<PopupsDropdownAttribute>().Any();
-        }
+            PopupsDropdownAttribute => ViewKind.Popup,
+            FragmentsDropdownAttribute => ViewKind.Fragment,
+            _ => ViewKind.Page,
+        };
 
-        protected override void Initialize()
+        public override VisualElement CreatePropertyGUI(SerializedProperty property)
         {
-            // Попапы проверяем первыми; иначе — страницы. (Оба сразу вешать смысла нет.)
-            if (Property.Attributes.OfType<PopupsDropdownAttribute>().Any())
-                _provider = NavigationData.EditorPopupIds;
-            else
-                _provider = NavigationData.EditorPageIds;
-        }
+            if (property.propertyType != SerializedPropertyType.String)
+                return new PropertyField(property);
 
-        protected override void DrawPropertyLayout(GUIContent label)
-        {
-            if (_provider == null)
+            var choices = BuildChoices(property.stringValue, out var index);
+            var field = new DropdownField(property.displayName, choices, index);
+            field.AddToClassList(BaseField<string>.alignedFieldUssClassName);
+
+            field.RegisterValueChangedCallback(evt =>
             {
-                CallNextDrawer(label);
+                property.serializedObject.Update();
+                property.stringValue = ToValue(evt.newValue);
+                property.serializedObject.ApplyModifiedProperties();
+            });
+
+            // Реестр мог измениться, пока инспектор открыт.
+            field.RegisterCallback<FocusInEvent>(_ =>
+            {
+                property.serializedObject.Update();
+                field.choices = BuildChoices(property.stringValue, out var i);
+                field.SetValueWithoutNotify(field.choices[i]);
+            });
+
+            return field;
+        }
+
+        public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+        {
+            if (property.propertyType != SerializedPropertyType.String)
+            {
+                EditorGUI.PropertyField(position, property, label);
                 return;
             }
 
-            RefreshCacheIfNeeded();
+            var choices = BuildChoices(property.stringValue, out var index);
 
-            var current = ValueEntry.SmartValue ?? string.Empty;
+            EditorGUI.BeginProperty(position, label, property);
+            var newIndex = EditorGUI.Popup(position, label.text, index, choices.ToArray());
+            if (newIndex != index) property.stringValue = ToValue(choices[newIndex]);
+            EditorGUI.EndProperty();
+        }
 
-            const string NoneLabel = "(None)";
-            var options = new List<string>(_cachedValues.Length + 2) { NoneLabel };
-            options.AddRange(_cachedValues);
+        private List<string> BuildChoices(string current, out int index)
+        {
+            var choices = new List<string> { NoneLabel };
+            choices.AddRange(AppCoreAssets.GetIds(Kind));
 
-            int selectedIndex;
             if (string.IsNullOrEmpty(current))
             {
-                selectedIndex = 0; // (None) — поле действительно пустое
-            }
-            else
-            {
-                var found = Array.IndexOf(_cachedValues, current);
-                if (found >= 0)
-                {
-                    selectedIndex = found + 1; // +1 из-за (None)
-                }
-                else
-                {
-                    // значение есть, но его нет в выборке — показываем явно, не подменяем
-                    options.Add($"{current}  (missing)");
-                    selectedIndex = options.Count - 1;
-                }
+                index = 0;
+                return choices;
             }
 
-            EditorGUILayout.BeginHorizontal();
-            {
-                if (label != null)
-                    EditorGUILayout.LabelField(label, GUILayout.Width(EditorGUIUtility.labelWidth));
+            index = choices.IndexOf(current);
+            if (index > 0) return choices;
 
-                var newIndex = SirenixEditorFields.Dropdown(string.Empty, selectedIndex, options.ToArray());
-                if (newIndex != selectedIndex)
-                {
-                    if (newIndex == 0)
-                        ValueEntry.SmartValue = string.Empty; // выбрали (None)
-                    else if (newIndex - 1 < _cachedValues.Length)
-                        ValueEntry.SmartValue = _cachedValues[newIndex - 1];
-                    // клик по "(missing)" — оставляем как есть
-                }
-
-                if (!string.IsNullOrEmpty(current))
-                {
-                    if (GUILayout.Button("✕", GUILayout.Width(20)))
-                        ValueEntry.SmartValue = string.Empty;
-                }
-            }
-            EditorGUILayout.EndHorizontal();
+            // Значение есть, но в реестре его нет — показываем явно, а не подменяем.
+            choices.Add(current + "  (missing)");
+            index = choices.Count - 1;
+            return choices;
         }
 
-        private void RefreshCacheIfNeeded()
+        private static string ToValue(string choice)
         {
-            var now = EditorApplication.timeSinceStartup;
-            if (_cachedValues != null && (now - _lastCacheTime) < CacheLifetimeSeconds)
-                return;
-
-            _cachedValues = _provider?.Invoke()?.ToArray() ?? Array.Empty<string>();
-            _lastCacheTime = now;
+            if (choice == NoneLabel) return string.Empty;
+            const string missing = "  (missing)";
+            return choice.EndsWith(missing) ? choice.Substring(0, choice.Length - missing.Length) : choice;
         }
     }
 }
-#endif
