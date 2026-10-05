@@ -36,6 +36,7 @@ namespace Exerussus.AppCore.Deck
         private CommandSpec _spec;
         private string _id;
         private object _shownTarget;
+        private bool _targetDirty;
 
         public ActionForm(ActionsTab owner)
         {
@@ -107,6 +108,7 @@ namespace Exerussus.AppCore.Deck
 
             style.display = DisplayStyle.Flex;
             _shownTarget = null;
+            _targetDirty = true;
             Tick();
 
             // фокус на первое текстовое поле — можно сразу печатать
@@ -126,13 +128,14 @@ namespace Exerussus.AppCore.Deck
             if (!IsShown) return;
 
             DeckTarget target = AppDeck.Target;
-            if (ReferenceEquals(target.Value, _shownTarget)) return;
+            if (!_targetDirty && ReferenceEquals(target.Value, _shownTarget)) return;
+            _targetDirty = false;
             _shownTarget = target.Value;
 
             for (var i = 0; i < _bindings.Count; i++)
             {
                 if (_bindings[i].TargetLabel == null) continue;
-                _bindings[i].TargetLabel.text = target.IsValid ? target.Label : "— цель не выбрана —";
+                _bindings[i].TargetLabel.text = target.IsValid ? "◎ " + target.Label : "цель не выбрана";
             }
         }
 
@@ -169,10 +172,31 @@ namespace Exerussus.AppCore.Deck
                     break;
 
                 case ArgKind.Target:
-                    binding.TargetLabel = new Label();
+                {
+                    // слово цели вписывают руками (all, me, имя, #номер) или берут из подсказок; пусто — выбранная цель
+                    binding.Text = new TextField { value = initial };
+                    binding.Text.AddToClassList("appdeck-form__text");
+                    binding.Text.style.flexGrow = 1;
+                    row.Add(binding.Text);
+
+                    TextField field = binding.Text;
+                    var useTarget = new Button(() => field.value = "$") { text = "◎", tooltip = "Выбранная цель ($)" };
+                    useTarget.AddToClassList("appdeck__icon-button");
+                    row.Add(useTarget);
+
+                    if (arg.Source != null)
+                    {
+                        Button pick = null;
+                        pick = new Button(() => OpenSourceMenu(arg.Source, field, pick)) { text = "▾", tooltip = "Значения" };
+                        pick.AddToClassList("appdeck__icon-button");
+                        row.Add(pick);
+                    }
+
+                    binding.TargetLabel = new Label { enableRichText = false };
                     binding.TargetLabel.AddToClassList("appdeck-form__target");
                     row.Add(binding.TargetLabel);
                     break;
+                }
 
                 default:
                     binding.Text = new TextField { value = initial };
@@ -264,8 +288,9 @@ namespace Exerussus.AppCore.Deck
         {
             if (b.Toggle != null) return b.Toggle.value ? "true" : "false";
             if (b.Choice != null) return b.Choice.value;
-            if (b.TargetLabel != null) return AppDeck.Target.IsValid ? "$" : string.Empty;
-            return b.Text?.value?.Trim();
+            string text = b.Text?.value?.Trim();
+            if (b.TargetLabel != null && string.IsNullOrEmpty(text)) return AppDeck.Target.IsValid ? "$" : string.Empty;
+            return text;
         }
     }
 }

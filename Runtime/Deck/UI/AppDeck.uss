@@ -559,6 +559,11 @@
 
 .appdeck-form__target {
     color: var(--deck-accent);
+    margin-left: 6px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .appdeck-form__about {
