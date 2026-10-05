@@ -132,7 +132,7 @@ namespace Exerussus.AppCore.Deck
             for (var i = 0; i < _bindings.Count; i++)
             {
                 if (_bindings[i].TargetLabel == null) continue;
-                _bindings[i].TargetLabel.text = target.IsValid ? target.Label : "— кликните по миру —";
+                _bindings[i].TargetLabel.text = target.IsValid ? target.Label : "— цель не выбрана —";
             }
         }
 

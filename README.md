@@ -186,7 +186,10 @@ Id и аргумент — строки: для обвязки и модульн
   `Assets/App/Settings` и кладётся в Preloaded Assets) разрешает: `Off` / `DevelopmentBuilds` / `Always`.
   Регистрация работает всегда — это просто данные. `Exerussus/App/AppDeck Settings` — открыть ассет.
 - **Клавиши.** `` ` `` — открыть/закрыть, Shift + `` ` `` — шторка / весь экран, Esc — закрыть подсказки,
-  потом окно. В шторке клик по миру выбирает цель.
+  потом окно.
+- **Цель и аргументы извне.** AppDeck не знает, как выбирают сущности: проект сам ставит цель
+  (`AppDeck.SetTarget`), подставляет токен в строку (`AppDeck.InsertArgument("#42")`) и разрешает токены
+  резолвером (`AppDeck.RegisterTargetResolver`). `AppDeck.IsOverWindow(pos)` — клик пришёлся на окно, не на мир.
 - **Ввод игры.** `AppDeck.BlocksInput` (открыто или закрылось этим же Esc), `AppDeck.IsTyping`,
   событие `AppDeck.OpenChanged`. Пока окно открыто, курсор свободен.
 
@@ -205,7 +208,7 @@ AppDeck.AddAction("Золото +100", "give gold 100", "cheat", owner);
 var kills = AppDeck.AddCounter("game.kills", "Game", track: true, owner: owner);
 AppDeck.Count(kills);                                         // горячий путь: без аллокаций
 AppDeck.AddGauge("game.agents", () => agents.Count, "Game", format: "F0", owner: owner);
-AppDeck.RegisterPicker(new MyPicker(), owner);                // цель для аргументов target
+AppDeck.RegisterTargetResolver(ResolveHero, owner);           // «me», «#42», имя → цель для target
 AppDeck.UnregisterAll(owner);                                 // снять всё разом
 ```
 

@@ -154,6 +154,9 @@ namespace Exerussus.AppCore.Deck
 
         protected internal override bool HandleEscape() => _input != null && _input.HandleEscape();
 
+        /// <summary>Подставить аргумент в строку ввода (см. <see cref="AppDeck.InsertArgument"/>).</summary>
+        public bool InsertArgument(string text) => _input != null && _input.InsertToken(text);
+
         protected internal override void OnShow()
         {
             // за время, пока вкладка была скрыта, логи шли — догоняем одним проходом

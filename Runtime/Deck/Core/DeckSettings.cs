@@ -100,16 +100,6 @@ namespace Exerussus.AppCore.Deck
         [Tooltip("Сколько введённых команд помнить (↑/↓).")]
         [SerializeField, Range(8, 512)] private int historySize = 64;
 
-        [Header("Выбор цели")]
-        [Tooltip("Клик по миру при открытом окне (Partial) выбирает цель для команд.")]
-        [SerializeField] private bool picking = true;
-
-        [Tooltip("Встроенный пикер: луч из главной камеры по физике. Игра может добавить свой с большим приоритетом.")]
-        [SerializeField] private bool physicsPicker = true;
-
-        [SerializeField] private float pickDistance = 1000f;
-        [SerializeField] private LayerMask pickLayers = ~0;
-
         [Header("Мини-HUD")]
         [Tooltip("Закреплённые метрики видны в углу, даже когда окно закрыто.")]
         [SerializeField] private bool hud = true;
@@ -140,10 +130,6 @@ namespace Exerussus.AppCore.Deck
         public int LogCapacity => logCapacity;
         public bool CollapseDuplicates => collapseDuplicates;
         public int HistorySize => historySize;
-        public bool Picking => picking;
-        public bool PhysicsPicker => physicsPicker;
-        public float PickDistance => pickDistance;
-        public int PickLayers => pickLayers;
         public bool Hud => hud;
         public DeckCorner HudCorner => hudCorner;
         public int HudRate => hudRate;

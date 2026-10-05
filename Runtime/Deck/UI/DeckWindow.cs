@@ -17,7 +17,6 @@ namespace Exerussus.AppCore.Deck
         private const string PrefsLayout = "appdeck.layout";
         private const string PrefsHeight = "appdeck.height";
         private const string PrefsTab = "appdeck.tab";
-        private const string PrefsPick = "appdeck.pick";
 
         private const float MinHeight = 0.15f;
         private const float MaxHeight = 0.95f;
@@ -28,7 +27,6 @@ namespace Exerussus.AppCore.Deck
         private readonly VisualElement _resizer;
         private readonly VisualElement _targetChip;
         private readonly Label _targetLabel;
-        private readonly Button _pickButton;
         private readonly Button _layoutButton;
 
         private readonly List<Button> _tabButtons = new List<Button>();
@@ -40,7 +38,6 @@ namespace Exerussus.AppCore.Deck
         private string _wantedTab;
         private DeckLayout _layout;
         private float _partialHeight;
-        private bool _pickArmed;
 
         private bool _dragging;
         private float _dragStartY;
@@ -89,11 +86,6 @@ namespace Exerussus.AppCore.Deck
             _targetChip.Add(clearTarget);
             header.Add(_targetChip);
 
-            _pickButton = new Button(TogglePick) { text = "◎", tooltip = "Выбор цели кликом по миру" };
-            _pickButton.AddToClassList("appdeck__icon-button");
-            _pickButton.style.display = settings == null || settings.Picking ? DisplayStyle.Flex : DisplayStyle.None;
-            header.Add(_pickButton);
-
             _layoutButton = new Button(ToggleLayout) { tooltip = "Шторка / весь экран (Shift + клавиша открытия)" };
             _layoutButton.AddToClassList("appdeck__icon-button");
             header.Add(_layoutButton);
@@ -122,20 +114,15 @@ namespace Exerussus.AppCore.Deck
             _partialHeight = Mathf.Clamp(PlayerPrefs.GetFloat(PrefsHeight, defaultHeight), MinHeight, MaxHeight);
             int defaultLayout = settings != null ? (int)settings.DefaultLayout : 0;
             _layout = PlayerPrefs.GetInt(PrefsLayout, defaultLayout) == 1 ? DeckLayout.Full : DeckLayout.Partial;
-            _pickArmed = PlayerPrefs.GetInt(PrefsPick, 1) == 1;
             _wantedTab = PlayerPrefs.GetString(PrefsTab, ConsoleTab.TabId);
 
             ApplyLayout();
-            ApplyPick();
             SetTarget(AppDeck.Target);
         }
 
         public DeckLayout Layout => _layout;
 
         public DeckTab ActiveTab => _active;
-
-        /// <summary>Выбор цели кликом сейчас включён (кнопка ◎ и режим шторки).</summary>
-        public bool PickActive => _pickArmed && _layout == DeckLayout.Partial && _pickButton.style.display != DisplayStyle.None;
 
         // ---------------------------------------------------------------- режимы
 
@@ -164,15 +151,6 @@ namespace Exerussus.AppCore.Deck
             // двойной клик по пустому месту шапки — смена режима
             if (evt.clickCount == 2 && evt.target == evt.currentTarget) ToggleLayout();
         }
-
-        private void TogglePick()
-        {
-            _pickArmed = !_pickArmed;
-            PlayerPrefs.SetInt(PrefsPick, _pickArmed ? 1 : 0);
-            ApplyPick();
-        }
-
-        private void ApplyPick() => _pickButton.EnableInClassList("appdeck__icon-button--on", _pickArmed);
 
         public void SetTarget(DeckTarget target)
         {
@@ -363,6 +341,18 @@ namespace Exerussus.AppCore.Deck
                 _active.IsVisible = false;
                 _active.OnHide();
             }
+        }
+
+        /// <summary>Подставить аргумент в строку консоли (если вкладка консоли построена).</summary>
+        public bool InsertArgument(string text)
+        {
+            IReadOnlyList<DeckTab> tabs = AppDeck.Tabs;
+            for (var i = 0; i < tabs.Count; i++)
+            {
+                if (tabs[i] is ConsoleTab console && console.IsBuilt) return console.InsertArgument(text);
+            }
+
+            return false;
         }
 
         public void Tick(float deltaTime)

@@ -56,27 +56,6 @@ namespace Exerussus.AppCore.Deck
             }
         }
 
-        /// <summary>Левая кнопка мыши нажата в этом кадре. Позиция — пиксели экрана, начало слева снизу.</summary>
-        public static bool LeftClick(out Vector2 screenPosition)
-        {
-#if APPDECK_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
-            Mouse mouse = Mouse.current;
-            if (mouse != null && mouse.leftButton.wasPressedThisFrame)
-            {
-                screenPosition = mouse.position.ReadValue();
-                return true;
-            }
-#elif ENABLE_LEGACY_INPUT_MANAGER
-            if (Input.GetMouseButtonDown(0))
-            {
-                screenPosition = Input.mousePosition;
-                return true;
-            }
-#endif
-            screenPosition = default;
-            return false;
-        }
-
 #if APPDECK_INPUT_SYSTEM && ENABLE_INPUT_SYSTEM
         private static Key ToKey(DeckHotkey hotkey) => hotkey switch
         {

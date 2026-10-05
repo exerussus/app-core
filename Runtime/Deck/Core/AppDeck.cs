@@ -40,8 +40,8 @@ namespace Exerussus.AppCore.Deck
         private static int _mainThreadId;
         private static bool _logSubscribed;
 
-        private static readonly List<IDeckPicker> _pickers = new List<IDeckPicker>();
-        private static readonly List<object> _pickerOwners = new List<object>();
+        private static readonly List<TargetResolver> _resolvers = new List<TargetResolver>();
+        private static readonly List<object> _resolverOwners = new List<object>();
         private static DeckTarget _target;
 
         private static readonly List<DeckTab> _tabs = new List<DeckTab>();
@@ -62,8 +62,8 @@ namespace Exerussus.AppCore.Deck
             _log = null;
             _host = null;
             _target = default;
-            _pickers.Clear();
-            _pickerOwners.Clear();
+            _resolvers.Clear();
+            _resolverOwners.Clear();
             _tabs.Clear();
             _tabOwners.Clear();
             _tabsVersion++;
@@ -180,12 +180,12 @@ namespace Exerussus.AppCore.Deck
 
             int removed = _commands.UnregisterAll(owner) + _suggestions.UnregisterAll(owner);
 
-            for (int i = _pickers.Count - 1; i >= 0; i--)
+            for (int i = _resolvers.Count - 1; i >= 0; i--)
             {
-                if (!ReferenceEquals(_pickerOwners[i], owner)) continue;
+                if (!ReferenceEquals(_resolverOwners[i], owner)) continue;
 
-                _pickers.RemoveAt(i);
-                _pickerOwners.RemoveAt(i);
+                _resolvers.RemoveAt(i);
+                _resolverOwners.RemoveAt(i);
                 removed++;
             }
 
@@ -300,7 +300,7 @@ namespace Exerussus.AppCore.Deck
 
         // ================================================================ цель
 
-        /// <summary>Выбранная цель (клик по миру). Команды получают её аргументом <see cref="ArgKind.Target"/>.</summary>
+        /// <summary>Выбранная цель (ставит владелец механизма выбора). Команды получают её аргументом <see cref="ArgKind.Target"/>.</summary>
         public static DeckTarget Target => _target.IsValid ? _target : default;
 
         public static event Action<DeckTarget> TargetChanged;
@@ -315,51 +315,46 @@ namespace Exerussus.AppCore.Deck
 
         public static void ClearTarget() => SetTarget(default);
 
-        /// <summary>Добавить пикер цели. Опрашиваются по убыванию приоритета.</summary>
-        public static void RegisterPicker(IDeckPicker picker, object owner = null)
+        /// <summary>
+        /// Резолвер токенов цели: <c>#42</c>, <c>me</c>, имя — как решит владелец. Спрашиваются по очереди
+        /// регистрации, первый ответивший побеждает.
+        /// </summary>
+        public static void RegisterTargetResolver(TargetResolver resolver, object owner = null)
         {
-            if (picker == null) throw new ArgumentNullException(nameof(picker));
-            if (_pickers.Contains(picker)) return;
+            if (resolver == null) throw new ArgumentNullException(nameof(resolver));
+            if (_resolvers.Contains(resolver)) return;
 
-            int index = 0;
-            while (index < _pickers.Count && _pickers[index].Priority >= picker.Priority) index++;
-
-            _pickers.Insert(index, picker);
-            _pickerOwners.Insert(index, owner);
+            _resolvers.Add(resolver);
+            _resolverOwners.Add(owner);
         }
 
-        public static bool UnregisterPicker(IDeckPicker picker)
+        public static bool UnregisterTargetResolver(TargetResolver resolver)
         {
-            int index = _pickers.IndexOf(picker);
+            int index = _resolvers.IndexOf(resolver);
             if (index < 0) return false;
 
-            _pickers.RemoveAt(index);
-            _pickerOwners.RemoveAt(index);
+            _resolvers.RemoveAt(index);
+            _resolverOwners.RemoveAt(index);
             return true;
         }
 
-        /// <summary>Клик по миру: первый попавший пикер задаёт цель; промах — цель снимается.</summary>
-        internal static void Pick(Vector2 screenPosition)
+        /// <summary>Разрешить токен в цель зарегистрированными резолверами. Падение резолвера — в консоль, не роняет разбор.</summary>
+        public static bool TryResolveTarget(string token, out DeckTarget target)
         {
-            for (var i = 0; i < _pickers.Count; i++)
+            for (var i = 0; i < _resolvers.Count; i++)
             {
-                bool hit;
-                DeckTarget target;
-
-                try { hit = _pickers[i].TryPick(screenPosition, out target); }
+                try
+                {
+                    if (_resolvers[i](token, out target) && target.IsValid) return true;
+                }
                 catch (Exception e)
                 {
-                    Debug.LogException(e);
-                    continue;
+                    Print($"Резолвер цели упал на «{token}»: {e.Message}", DeckLogType.Error, e.ToString());
                 }
-
-                if (!hit || !target.IsValid) continue;
-
-                SetTarget(target);
-                return;
             }
 
-            if (_target.IsValid) ClearTarget();
+            target = default;
+            return false;
         }
 
         // ================================================================ окно
@@ -399,6 +394,19 @@ namespace Exerussus.AppCore.Deck
             get => _host != null ? _host.Layout : DeckLayout.Partial;
             set => _host?.SetLayout(value);
         }
+
+        /// <summary>
+        /// Подставить аргумент в строку ввода консоли извне (выбор сущности в мире, кнопка, инструмент):
+        /// каретка внутри слова — слово заменяется, иначе вставляется у каретки с пробелами. Окно не открывает.
+        /// false — окна нет или консоль ещё не построена.
+        /// </summary>
+        public static bool InsertArgument(string text) => _host != null && _host.InsertArgument(text);
+
+        /// <summary>
+        /// Точка экрана над окном AppDeck (пиксели, начало слева снизу). Нужна тем, кто сам ловит клики по миру
+        /// при открытом окне: клик по окну — не по миру.
+        /// </summary>
+        public static bool IsOverWindow(Vector2 screenPosition) => _host != null && _host.IsOverWindow(screenPosition);
 
         /// <summary>Открыть окно на вкладке.</summary>
         public static void ShowTab(string tabId)

@@ -40,7 +40,6 @@ namespace Exerussus.AppCore.Deck
         private CursorLockMode _restoreLock;
         private bool _restoreVisible;
 
-        private PhysicsDeckPicker _physicsPicker;
         private DeckBuiltinMetrics _builtinMetrics;
         private float _metricsClock;
         private float _metricsNext;
@@ -63,13 +62,6 @@ namespace Exerussus.AppCore.Deck
             // встроенные вкладки — владелец «встроенное», проект добавляет свои рядом
             AppDeck.AddTab(new ConsoleTab(settings), AppDeck.BuiltinOwner);
             DeckBuiltinTabs.Register(settings);
-
-            if (settings == null || (settings.Picking && settings.PhysicsPicker))
-            {
-                host._physicsPicker = new PhysicsDeckPicker(settings != null ? settings.PickDistance : 1000f,
-                                                            settings != null ? settings.PickLayers : ~0);
-                AppDeck.RegisterPicker(host._physicsPicker, AppDeck.BuiltinOwner);
-            }
 
             AppDeck.TargetChanged += host.OnTargetChanged;
 
@@ -299,14 +291,6 @@ namespace Exerussus.AppCore.Deck
                 if (Time.frameCount == _focusFrame) _window.ActiveTab?.Focus();
                 else if (Time.frameCount == _refocusFrame) _window.ActiveTab?.Refocus();
 
-                if (_window.PickActive && DeckInput.LeftClick(out Vector2 screen) && !IsOverWindow(screen))
-                {
-                    AppDeck.Pick(screen);
-
-                    // клик по миру забрал фокус у строки ввода — возвращаем, чтобы сразу писать команду про цель
-                    _refocusFrame = Time.frameCount + 1;
-                }
-
                 _window.Tick(dt);
             }
 
@@ -331,8 +315,22 @@ namespace Exerussus.AppCore.Deck
             }
         }
 
-        private bool IsOverWindow(Vector2 screen)
+        /// <summary>
+        /// Подставить аргумент в консоль. Фокус возвращается в строку в следующем кадре: клик по миру, которым
+        /// выбрали сущность, мог его забрать.
+        /// </summary>
+        public bool InsertArgument(string text)
         {
+            if (_window == null || string.IsNullOrEmpty(text) || !_window.InsertArgument(text)) return false;
+
+            if (_open) _refocusFrame = Time.frameCount + 1;
+            return true;
+        }
+
+        public bool IsOverWindow(Vector2 screen)
+        {
+            if (!_open) return false;
+
             IPanel panel = _root?.panel;
             if (panel == null) return false;
 
@@ -345,7 +343,6 @@ namespace Exerussus.AppCore.Deck
         private void OnDestroy()
         {
             AppDeck.TargetChanged -= OnTargetChanged;
-            if (_physicsPicker != null) AppDeck.UnregisterPicker(_physicsPicker);
             _builtinMetrics?.Dispose();
             if (_renderer != null) _renderer.UnregisterUIReloadCallback(OnUIReload);
 

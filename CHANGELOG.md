@@ -3,6 +3,23 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.2.0]
+
+AppDeck больше не знает, как выбирают цель: механизм выбора (клик мышью по миру и т. п.) — дело проекта.
+
+### Добавлено
+
+- `AppDeck.InsertArgument(text)` — подставить аргумент в строку консоли извне (слово под кареткой
+  заменяется, иначе вставка с пробелами; имя команды не трогается).
+- `AppDeck.RegisterTargetResolver(resolver)` / `TryResolveTarget` — токены аргумента `target`
+  (`#42`, `me`, имя) разрешаются резолверами проекта; слово всегда доступно и текстом (`all`).
+- `AppDeck.IsOverWindow(screenPosition)` — для тех, кто сам ловит клики по миру при открытом окне.
+
+### Удалено
+
+- Встроенный выбор цели кликом: `IDeckPicker`, `PhysicsDeckPicker`, `RegisterPicker`, кнопка ◎,
+  настройки `picking` / `physicsPicker` / `pickDistance` / `pickLayers`.
+
 ## [4.1.1]
 
 ### Исправлено

@@ -41,7 +41,7 @@ namespace Exerussus.AppCore.Deck
         /// <summary>Окно открылось на этой вкладке: поставить фокус (поле ввода, поиск).</summary>
         protected internal virtual void Focus() { }
 
-        /// <summary>Вернуть фокус после клика по миру (выбор цели), не трогая каретку. По умолчанию — <see cref="Focus"/>.</summary>
+        /// <summary>Вернуть фокус после подстановки аргумента извне (<see cref="AppDeck.InsertArgument"/>), не трогая каретку. По умолчанию — <see cref="Focus"/>.</summary>
         protected internal virtual void Refocus() => Focus();
 
         /// <summary>Фокус в текстовом поле вкладки — игре не читать клавиатуру.</summary>

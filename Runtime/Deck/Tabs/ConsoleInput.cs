@@ -129,6 +129,63 @@ namespace Exerussus.AppCore.Deck
             _field.SelectRange(at, at);
         }
 
+        /// <summary>
+        /// Подставить токен у каретки: каретка внутри слова — слово заменяется (повторный выбор сущности
+        /// меняет аргумент, а не копит их), иначе — вставка с пробелами вокруг.
+        /// </summary>
+        public bool InsertToken(string token)
+        {
+            if (string.IsNullOrEmpty(token)) return false;
+
+            token = CommandLine.Quote(token);
+            string text = _field.value ?? string.Empty;
+            int caret = Mathf.Clamp(_field.cursorIndex, 0, text.Length);
+
+            int stmtStart = 0, stmtEnd = text.Length, from = 0;
+            while (CommandLine.NextStatement(text, from, out int s, out int e, out int next))
+            {
+                stmtStart = s;
+                stmtEnd = e;
+                if (caret <= e) break;
+                from = next;
+            }
+
+            if (caret > stmtEnd) stmtStart = stmtEnd = caret;
+
+            Span<TokenRange> tokens = stackalloc TokenRange[CommandLine.MaxTokens];
+            int count = CommandLine.Tokenize(text, stmtStart, stmtEnd, tokens);
+            int ti = CommandLine.TokenAt(tokens.Slice(0, count), caret, out bool inside);
+
+            // имя команды не заменяем — подставляем следующим словом
+            if (inside && ti == 0)
+            {
+                caret = tokens[0].OuterEnd;
+                inside = false;
+            }
+
+            string result;
+            int at;
+
+            if (inside)
+            {
+                TokenRange t = tokens[ti];
+                result = string.Concat(text.Substring(0, t.OuterStart), token, text.Substring(t.OuterEnd));
+                at = t.OuterStart + token.Length;
+            }
+            else
+            {
+                bool spaceBefore = caret > 0 && !char.IsWhiteSpace(text[caret - 1]);
+                bool spaceAfter = caret >= text.Length || !char.IsWhiteSpace(text[caret]);
+                string insert = (spaceBefore ? " " : string.Empty) + token + (spaceAfter ? " " : string.Empty);
+                result = string.Concat(text.Substring(0, caret), insert, text.Substring(caret));
+                at = caret + insert.Length;
+            }
+
+            _field.value = result;
+            _field.SelectRange(at, at);
+            return true;
+        }
+
         /// <summary>Escape: сначала закрываем подсказки, потом уже окно.</summary>
         public bool HandleEscape()
         {

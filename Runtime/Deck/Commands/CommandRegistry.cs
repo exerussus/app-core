@@ -452,14 +452,16 @@ namespace Exerussus.AppCore.Deck
                         value.Present = target.IsValid;
                         if (!value.Present)
                         {
-                            error = $"«{arg.Name}» — цель не выбрана (кликните по миру при открытой панели).";
+                            error = $"«{arg.Name}» — цель не выбрана.";
                             return false;
                         }
 
                         return true;
                     }
 
+                    // слово вместо «$»: спросить резолверы (#42, me, имя); не ответили — команда решит сама (all)
                     value.Text = CommandLine.Value(text, token);
+                    if (AppDeck.TryResolveTarget(value.Text, out DeckTarget resolved)) value.Target = resolved;
                     return true;
 
                 default:

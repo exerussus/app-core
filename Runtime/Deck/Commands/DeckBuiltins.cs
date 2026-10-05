@@ -43,7 +43,7 @@ namespace Exerussus.AppCore.Deck
                    .Register(owner);
 
             AppDeck.Command("target")
-                   .Summary("Показать выбранную цель (клик по миру при открытой шторке)")
+                   .Summary("Показать выбранную цель")
                    .Run(ctx =>
                    {
                        DeckTarget t = AppDeck.Target;

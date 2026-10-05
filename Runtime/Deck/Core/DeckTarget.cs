@@ -3,9 +3,9 @@ using UnityEngine;
 namespace Exerussus.AppCore.Deck
 {
     /// <summary>
-    /// Выбранная цель: то, на что кликнули в мире при открытом AppDeck. AppCore не знает, что это —
-    /// персонаж, предмет или просто GameObject: значение кладёт и читает тот, кто его выбрал
-    /// (<see cref="IDeckPicker"/>), а команды получают его аргументом <see cref="ArgKind.Target"/>.
+    /// Выбранная цель. AppCore не знает, что это —
+    /// персонаж, предмет или просто GameObject и как его выбрали: значение кладёт и читает тот, кто выбрал
+    /// (<see cref="AppDeck.SetTarget"/>), а команды получают его аргументом <see cref="ArgKind.Target"/>.
     /// </summary>
     public readonly struct DeckTarget
     {
@@ -38,52 +38,10 @@ namespace Exerussus.AppCore.Deck
     }
 
     /// <summary>
-    /// Выбор цели кликом по миру. Регистрирует проект (<see cref="AppDeck.RegisterPicker"/>):
-    /// игра знает свои сущности, AppCore — только экран и клик. Пикеры опрашиваются по убыванию
-    /// приоритета, первый попавший побеждает.
+    /// Разрешить токен аргумента <see cref="ArgKind.Target"/> в цель: <c>#42</c>, <c>me</c>, имя игрока — как
+    /// угодно владельцу. AppCore не знает, что за сущности в игре и как их называют: он спрашивает
+    /// зарегистрированные резолверы по очереди (<see cref="AppDeck.RegisterTargetResolver"/>), первый ответивший
+    /// побеждает. Не ответил никто — команда получает слово как есть (<c>all</c> и подобное решает сама).
     /// </summary>
-    public interface IDeckPicker
-    {
-        /// <summary>Чем больше, тем раньше спрашивают. Встроенный физический пикер — <c>int.MinValue</c>.</summary>
-        int Priority { get; }
-
-        /// <summary>Клик по миру. <paramref name="screenPosition"/> — пиксели экрана, начало слева снизу.</summary>
-        bool TryPick(Vector2 screenPosition, out DeckTarget target);
-    }
-
-    /// <summary>
-    /// Пикер по умолчанию: луч из главной камеры по физике, цель — GameObject коллайдера
-    /// (или его Rigidbody). Работает в любом проекте без настройки; игра перекрывает его своим
-    /// пикером с большим приоритетом.
-    /// </summary>
-    public sealed class PhysicsDeckPicker : IDeckPicker
-    {
-        private readonly float _maxDistance;
-        private readonly int _layers;
-        private Camera _camera;
-
-        public PhysicsDeckPicker(float maxDistance, int layers)
-        {
-            _maxDistance = maxDistance;
-            _layers = layers;
-        }
-
-        public int Priority => int.MinValue;
-
-        public bool TryPick(Vector2 screenPosition, out DeckTarget target)
-        {
-            target = default;
-
-            // Camera.main — поиск по тегу; кэшируем и перепроверяем, только если камера пропала
-            if (_camera == null || !_camera.isActiveAndEnabled) _camera = Camera.main;
-            if (_camera == null) return false;
-
-            Ray ray = _camera.ScreenPointToRay(screenPosition);
-            if (!Physics.Raycast(ray, out RaycastHit hit, _maxDistance, _layers, QueryTriggerInteraction.Ignore)) return false;
-
-            GameObject go = hit.rigidbody != null ? hit.rigidbody.gameObject : hit.collider.gameObject;
-            target = new DeckTarget(go, go.name, hit.point, this);
-            return true;
-        }
-    }
+    public delegate bool TargetResolver(string token, out DeckTarget target);
 }
