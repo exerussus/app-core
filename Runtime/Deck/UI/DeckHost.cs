@@ -241,7 +241,8 @@ namespace Exerussus.AppCore.Deck
                 Cursor.lockState = CursorLockMode.None;
             }
 
-            if (!Cursor.visible)
+            // курсор рисует проект (свой, поверх всего) — системную стрелку не показываем
+            if (!Cursor.visible && !AppDeck.HardwareCursorHidden)
             {
                 _restoreVisible = false;
                 Cursor.visible = true;
@@ -338,6 +339,16 @@ namespace Exerussus.AppCore.Deck
             // всплывающим меню (выпадающие списки живут в корне панели, вне окна)
             Vector2 point = RuntimePanelUtils.ScreenToPanel(panel, new Vector2(screen.x, Screen.height - screen.y));
             return panel.Pick(point) != null;
+        }
+
+        /// <summary>Верхний элемент панели AppDeck под точкой экрана или null (окно закрыто, точка мимо).</summary>
+        public VisualElement PickAt(Vector2 screen)
+        {
+            IPanel panel = _root?.panel;
+            if (panel == null) return null;
+
+            Vector2 point = RuntimePanelUtils.ScreenToPanel(panel, new Vector2(screen.x, Screen.height - screen.y));
+            return panel.Pick(point);
         }
 
         private void OnDestroy()

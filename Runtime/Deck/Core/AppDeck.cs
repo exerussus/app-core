@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace Exerussus.AppCore.Deck
 {
@@ -62,6 +63,7 @@ namespace Exerussus.AppCore.Deck
             _log = null;
             _host = null;
             _target = default;
+            HardwareCursorHidden = false;
             _resolvers.Clear();
             _resolverOwners.Clear();
             _tabs.Clear();
@@ -407,6 +409,18 @@ namespace Exerussus.AppCore.Deck
         /// при открытом окне: клик по окну — не по миру.
         /// </summary>
         public static bool IsOverWindow(Vector2 screenPosition) => _host != null && _host.IsOverWindow(screenPosition);
+
+        /// <summary>
+        /// Верхний элемент панели AppDeck под точкой экрана (пиксели, начало слева снизу) или null. Для тех, кто
+        /// сам решает, что под мышью (свой курсор с подсветкой кнопок): окно AppDeck выше всех панелей игры.
+        /// </summary>
+        public static VisualElement PickAt(Vector2 screenPosition) => _host?.PickAt(screenPosition);
+
+        /// <summary>
+        /// Системную стрелку прячет проект (рисует свой курсор): открытое окно освобождает курсор, но не делает
+        /// его видимым. По умолчанию false — окно показывает стрелку, как раньше.
+        /// </summary>
+        public static bool HardwareCursorHidden { get; set; }
 
         /// <summary>Открыть окно на вкладке.</summary>
         public static void ShowTab(string tabId)

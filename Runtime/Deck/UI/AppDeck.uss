@@ -80,7 +80,7 @@
     background-color: var(--deck-bg-alt);
     border-top-width: 1px;
     border-top-color: var(--deck-line);
-    cursor: resize-vertical;
+    /* cursor-ключевые слова в рантайме не работают (нужна текстура) — подсказка подсветкой при наведении */
 }
 
 .appdeck__resizer:hover {

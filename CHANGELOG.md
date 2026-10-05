@@ -3,6 +3,20 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.2.1]
+
+### Добавлено
+
+- `AppDeck.PickAt(screenPosition)` — верхний элемент панели AppDeck под точкой экрана (для своего курсора
+  проекта, который подсвечивает кнопки под мышью: окно AppDeck выше всех панелей игры).
+- `AppDeck.HardwareCursorHidden` — проект рисует свой курсор: открытое окно освобождает курсор, но не
+  показывает системную стрелку.
+
+### Исправлено
+
+- AppDeck: предупреждение «Runtime cursors other than the default cursor need to be defined using a texture» —
+  у ручки размера окна убран `cursor: resize-vertical` (в рантайме UI Toolkit курсор задаётся только текстурой).
+
 ## [4.2.0]
 
 AppDeck больше не знает, как выбирают цель: механизм выбора (клик мышью по миру и т. п.) — дело проекта.
