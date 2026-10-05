@@ -101,7 +101,13 @@ namespace Exerussus.AppCore.Deck.Editor
                 dirty = true;
             }
 
-            if (dirty) PlayerSettings.SetPreloadedAssets(list.ToArray());
+            if (!dirty) return;
+
+            PlayerSettings.SetPreloadedAssets(list.ToArray());
+
+            // настройки проекта — на диск сразу: иначе ProjectSettings.asset запишется только при закрытии
+            // редактора, и до этого сборка/коммит не увидят ассет в Preloaded Assets
+            AssetDatabase.SaveAssets();
         }
     }
 }

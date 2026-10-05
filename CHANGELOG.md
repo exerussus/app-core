@@ -3,6 +3,13 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.1.1]
+
+### Исправлено
+
+- AppDeck: добавление настроек в Preloaded Assets сразу пишется в `ProjectSettings.asset`
+  (раньше — только при закрытии редактора).
+
 ## [4.1.0]
 
 ### Добавлено
