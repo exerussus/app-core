@@ -1,0 +1,19 @@
+{
+    "name": "Exerussus.AppCore.Deck.Editor",
+    "rootNamespace": "Exerussus.AppCore.Deck.Editor",
+    "references": [
+        "GUID:fc400ceb3ef6b8948868273b707409c8",
+        "GUID:f18249b06ac74707b27d897786c905d5"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

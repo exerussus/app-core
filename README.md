@@ -176,3 +176,37 @@ Id и аргумент — строки: для обвязки и модульн
 Отступы выреза получает слой `SafeLayer` каждого вью. `AppRunner` держит реестр слоёв и
 переприменяет отступы только когда реально изменились безопасная зона, ориентация или
 разрешение: в обычном кадре это несколько сравнений структур и выход, без аллокаций.
+
+## AppDeck
+
+Панель приложения поверх всего — консоль, быстрые действия, метрики. Отдельная сборка
+`Exerussus.AppCore.Deck`: ядро о ней не знает, проект подключает её ссылкой в asmdef.
+
+- **Запуск.** Поднимается сама до первой сцены, если `AppDeckSettings.asset` (создаётся в
+  `Assets/App/Settings` и кладётся в Preloaded Assets) разрешает: `Off` / `DevelopmentBuilds` / `Always`.
+  Регистрация работает всегда — это просто данные. `Exerussus/App/AppDeck Settings` — открыть ассет.
+- **Клавиши.** `` ` `` — открыть/закрыть, Shift + `` ` `` — шторка / весь экран, Esc — закрыть подсказки,
+  потом окно. В шторке клик по миру выбирает цель.
+- **Ввод игры.** `AppDeck.BlocksInput` (открыто или закрылось этим же Esc), `AppDeck.IsTyping`,
+  событие `AppDeck.OpenChanged`. Пока окно открыто, курсор свободен.
+
+```csharp
+// команда
+AppDeck.Command("give")
+    .Summary("Выдать предмет")
+    .Args("item:string@item count:int=1")
+    .AsAction("Выдать", "cheat, items")          // ещё и кнопкой во вкладке Actions
+    .Run(ctx => Give(ctx.GetString("item"), ctx.GetInt("count")))
+    .Register(owner);
+
+AppDeck.Register("god", "on:bool=true", "Бессмертие", ctx => SetGod(ctx.GetBool(0)), owner);
+AppDeck.RegisterSuggestions("item", itemIds, owner);          // подсказки для @item
+AppDeck.AddAction("Золото +100", "give gold 100", "cheat", owner);
+var kills = AppDeck.AddCounter("game.kills", "Game", track: true, owner: owner);
+AppDeck.Count(kills);                                         // горячий путь: без аллокаций
+AppDeck.AddGauge("game.agents", () => agents.Count, "Game", format: "F0", owner: owner);
+AppDeck.RegisterPicker(new MyPicker(), owner);                // цель для аргументов target
+AppDeck.UnregisterAll(owner);                                 // снять всё разом
+```
+
+Регистрируйте не раньше `BeforeSceneLoad`: на `SubsystemRegistration` реестры сбрасываются.

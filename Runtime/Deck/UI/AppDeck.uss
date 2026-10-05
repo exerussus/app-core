@@ -1,0 +1,702 @@
+/* AppDeck — оформление. Раскладку виртуальных списков задаёт код; здесь — только вид. */
+
+.appdeck {
+    --deck-bg: rgba(14, 16, 20, 0.94);
+    --deck-bg-alt: rgba(24, 27, 33, 0.96);
+    --deck-line: rgba(255, 255, 255, 0.08);
+    --deck-text: rgb(214, 218, 224);
+    --deck-dim: rgb(138, 143, 152);
+    --deck-accent: rgb(255, 216, 102);
+    --deck-log: rgb(214, 218, 224);
+    --deck-warn: rgb(255, 196, 77);
+    --deck-error: rgb(255, 99, 99);
+    --deck-input: rgb(120, 200, 255);
+    --deck-output: rgb(150, 220, 160);
+    --deck-row-hover: rgba(255, 255, 255, 0.04);
+    --deck-row-selected: rgba(255, 216, 102, 0.14);
+    color: var(--deck-text);
+    font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- панель */
+
+.appdeck__panel {
+    background-color: var(--deck-bg);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--deck-line);
+    flex-direction: column;
+}
+
+.appdeck__header {
+    flex-direction: row;
+    align-items: center;
+    height: 30px;
+    padding-left: 6px;
+    padding-right: 4px;
+    background-color: var(--deck-bg-alt);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--deck-line);
+    flex-shrink: 0;
+}
+
+.appdeck__tabs {
+    flex-direction: row;
+    height: 100%;
+}
+
+.appdeck__tab {
+    margin: 0;
+    padding: 0 12px;
+    height: 100%;
+    border-width: 0;
+    border-radius: 0;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--deck-dim);
+    -unity-font-style: bold;
+}
+
+.appdeck__tab:hover {
+    color: var(--deck-text);
+}
+
+.appdeck__tab--active {
+    color: var(--deck-accent);
+    border-bottom-width: 2px;
+    border-bottom-color: var(--deck-accent);
+}
+
+.appdeck__body {
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.appdeck__tab-root {
+    flex-direction: column;
+}
+
+.appdeck__resizer {
+    height: 6px;
+    flex-shrink: 0;
+    background-color: var(--deck-bg-alt);
+    border-top-width: 1px;
+    border-top-color: var(--deck-line);
+    cursor: resize-vertical;
+}
+
+.appdeck__resizer:hover {
+    background-color: rgba(255, 216, 102, 0.25);
+}
+
+.appdeck__icon-button {
+    margin: 0 1px;
+    padding: 0;
+    min-width: 24px;
+    height: 22px;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--deck-dim);
+    -unity-text-align: middle-center;
+}
+
+.appdeck__icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--deck-text);
+}
+
+.appdeck__icon-button--on {
+    color: var(--deck-accent);
+    background-color: rgba(255, 216, 102, 0.12);
+}
+
+.appdeck__target {
+    flex-direction: row;
+    align-items: center;
+    height: 22px;
+    margin-right: 6px;
+    padding-left: 8px;
+    border-radius: 11px;
+    background-color: rgba(255, 216, 102, 0.14);
+}
+
+.appdeck__target-label {
+    color: var(--deck-accent);
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+}
+
+/* ---------------------------------------------------------------- панель инструментов */
+
+.appdeck-toolbar {
+    flex-direction: row;
+    align-items: center;
+    height: 28px;
+    padding: 0 4px;
+    flex-shrink: 0;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--deck-line);
+}
+
+.appdeck-filter {
+    flex-direction: row;
+    align-items: center;
+    margin: 0 2px;
+    padding: 0 6px;
+    height: 22px;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.03);
+    opacity: 0.45;
+}
+
+.appdeck-filter--on {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.appdeck-filter__title {
+    margin: 0 4px 0 0;
+    padding: 0;
+}
+
+.appdeck-filter__count {
+    margin: 0;
+    padding: 0;
+    color: var(--deck-dim);
+    min-width: 14px;
+}
+
+.appdeck-filter--warn .appdeck-filter__title { color: var(--deck-warn); }
+.appdeck-filter--error .appdeck-filter__title { color: var(--deck-error); }
+.appdeck-filter--cmd .appdeck-filter__title { color: var(--deck-input); }
+
+.appdeck-search {
+    flex-grow: 1;
+    max-width: 320px;
+    margin: 0 6px;
+    height: 22px;
+}
+
+/* ---------------------------------------------------------------- виртуальный список */
+
+.appdeck-vlist__scroller {
+    width: 10px;
+    min-width: 10px;
+}
+
+.appdeck-vlist__scroller .unity-scroller__low-button,
+.appdeck-vlist__scroller .unity-scroller__high-button {
+    display: none;
+}
+
+.appdeck-vlist__row:hover {
+    background-color: var(--deck-row-hover);
+}
+
+.appdeck-vlist__row--selected {
+    background-color: var(--deck-row-selected);
+}
+
+/* ---------------------------------------------------------------- строки консоли */
+
+.appdeck-log {
+    flex-direction: row;
+    align-items: center;
+    overflow: hidden;
+}
+
+.appdeck-log__stripe {
+    width: 3px;
+    height: 100%;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.appdeck-log__time {
+    width: 62px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+    color: var(--deck-dim);
+    font-size: 11px;
+}
+
+.appdeck-log__repeat {
+    margin: 0 6px 0 0;
+    padding: 0 5px;
+    border-radius: 7px;
+    flex-shrink: 0;
+    font-size: 11px;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.appdeck-log__message {
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    -unity-text-align: middle-left;
+}
+
+.appdeck-log--log .appdeck-log__stripe { background-color: rgba(255, 255, 255, 0.15); }
+.appdeck-log--warning .appdeck-log__stripe { background-color: var(--deck-warn); }
+.appdeck-log--warning .appdeck-log__message { color: var(--deck-warn); }
+.appdeck-log--error .appdeck-log__stripe { background-color: var(--deck-error); }
+.appdeck-log--error .appdeck-log__message { color: var(--deck-error); }
+.appdeck-log--input .appdeck-log__stripe { background-color: var(--deck-input); }
+.appdeck-log--input .appdeck-log__message { color: var(--deck-input); -unity-font-style: bold; }
+.appdeck-log--output .appdeck-log__stripe { background-color: var(--deck-output); }
+.appdeck-log--output .appdeck-log__message { color: var(--deck-output); }
+
+.appdeck-console__list {
+    flex-grow: 1;
+    flex-basis: 0;
+}
+
+.appdeck-console__details {
+    height: 34%;
+    min-height: 60px;
+    flex-shrink: 0;
+    border-top-width: 1px;
+    border-top-color: var(--deck-line);
+}
+
+.appdeck-console__details-text {
+    flex-grow: 1;
+    margin: 0;
+}
+
+.appdeck-console__details-text .unity-text-field__input {
+    background-color: rgba(0, 0, 0, 0.25);
+    border-width: 0;
+    color: var(--deck-text);
+    -unity-text-align: upper-left;
+    white-space: normal;
+}
+
+/* ---------------------------------------------------------------- строка ввода */
+
+.appdeck-input {
+    flex-shrink: 0;
+    border-top-width: 1px;
+    border-top-color: var(--deck-line);
+    background-color: var(--deck-bg-alt);
+}
+
+.appdeck-input__hint {
+    height: 18px;
+    margin: 0;
+    padding: 2px 8px 0 8px;
+    font-size: 11px;
+    color: var(--deck-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appdeck-input__line {
+    flex-direction: row;
+    align-items: center;
+    height: 30px;
+    padding: 0 4px 0 8px;
+}
+
+.appdeck-input__prompt {
+    margin: 0 4px 0 0;
+    padding: 0;
+    color: var(--deck-accent);
+    -unity-font-style: bold;
+}
+
+.appdeck-input__field {
+    margin: 0;
+}
+
+.appdeck-input__field .unity-text-field__input {
+    background-color: rgba(0, 0, 0, 0.3);
+    border-width: 1px;
+    border-color: var(--deck-line);
+    color: var(--deck-text);
+    padding-left: 6px;
+}
+
+.appdeck-input__field--known .unity-text-field__input {
+    border-color: rgba(150, 220, 160, 0.5);
+}
+
+.appdeck-input__field--unknown .unity-text-field__input {
+    border-color: rgba(255, 99, 99, 0.6);
+}
+
+.appdeck-input__popup {
+    left: 30px;
+    bottom: 100%;
+    min-width: 320px;
+    max-width: 80%;
+    padding: 3px 0;
+    background-color: rgb(30, 33, 40);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+}
+
+.appdeck-input__suggestion {
+    flex-direction: row;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+}
+
+.appdeck-input__suggestion:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.appdeck-input__suggestion--selected {
+    background-color: rgba(255, 216, 102, 0.18);
+}
+
+.appdeck-input__suggestion-name {
+    margin: 0 12px 0 0;
+    padding: 0;
+    -unity-font-style: bold;
+    color: var(--deck-text);
+}
+
+.appdeck-input__suggestion-detail {
+    margin: 0;
+    padding: 0;
+    color: var(--deck-dim);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+}
+
+/* ---------------------------------------------------------------- общее */
+
+.appdeck-empty {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 40%;
+    -unity-text-align: middle-center;
+    color: var(--deck-dim);
+    white-space: normal;
+}
+
+.appdeck-chip {
+    margin: 0 2px;
+    padding: 0 8px;
+    height: 20px;
+    border-width: 0;
+    border-radius: 10px;
+    background-color: rgba(255, 255, 255, 0.06);
+    color: var(--deck-dim);
+    font-size: 11px;
+}
+
+.appdeck-chip:hover {
+    color: var(--deck-text);
+}
+
+.appdeck-chip--on {
+    background-color: rgba(255, 216, 102, 0.2);
+    color: var(--deck-accent);
+}
+
+/* ---------------------------------------------------------------- Actions */
+
+.appdeck-actions__chips {
+    flex-direction: row;
+    flex-grow: 1;
+    flex-shrink: 1;
+    overflow: hidden;
+    align-items: center;
+}
+
+.appdeck-actions__grid {
+    flex-grow: 1;
+    flex-basis: 0;
+}
+
+.appdeck-actions__row {
+    flex-direction: row;
+    padding: 3px 3px 0 3px;
+}
+
+.appdeck-action {
+    flex-grow: 1;
+    flex-basis: 0;
+    margin: 0 3px 3px 0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: var(--deck-line);
+    background-color: rgba(255, 255, 255, 0.04);
+    justify-content: center;
+    overflow: hidden;
+}
+
+.appdeck-action:hover {
+    background-color: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 216, 102, 0.35);
+}
+
+.appdeck-action:active {
+    background-color: rgba(255, 216, 102, 0.18);
+}
+
+.appdeck-action__title {
+    margin: 0;
+    padding: 0;
+    -unity-font-style: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appdeck-action__tags {
+    margin: 2px 0 0 0;
+    padding: 0;
+    font-size: 10px;
+    color: var(--deck-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appdeck-action__pin {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 10px;
+    color: var(--deck-accent);
+}
+
+.appdeck-action__form {
+    position: absolute;
+    bottom: 2px;
+    right: 6px;
+    color: var(--deck-dim);
+}
+
+.appdeck-action--ok {
+    background-color: rgba(150, 220, 160, 0.25);
+    border-color: rgba(150, 220, 160, 0.7);
+}
+
+.appdeck-action--fail {
+    background-color: rgba(255, 99, 99, 0.25);
+    border-color: rgba(255, 99, 99, 0.7);
+}
+
+.appdeck-action--armed {
+    background-color: rgba(255, 196, 77, 0.22);
+    border-color: var(--deck-warn);
+}
+
+/* ---------------------------------------------------------------- форма кнопки */
+
+.appdeck-form {
+    top: 36px;
+    left: 20%;
+    right: 20%;
+    max-height: 80%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.14);
+    background-color: rgb(26, 29, 36);
+}
+
+.appdeck-form__header {
+    flex-direction: row;
+    align-items: center;
+}
+
+.appdeck-form__title {
+    flex-grow: 1;
+    margin: 0;
+    -unity-font-style: bold;
+    font-size: 14px;
+    color: var(--deck-accent);
+}
+
+.appdeck-form__signature {
+    margin: 2px 0 6px 0;
+    color: var(--deck-dim);
+    font-size: 11px;
+    white-space: normal;
+}
+
+.appdeck-form__fields {
+    flex-shrink: 1;
+}
+
+.appdeck-form__row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 26px;
+}
+
+.appdeck-form__label {
+    width: 120px;
+    margin: 0;
+    color: var(--deck-text);
+}
+
+.appdeck-form__text,
+.appdeck-form__choice {
+    flex-grow: 1;
+    margin: 0;
+}
+
+.appdeck-form__target {
+    color: var(--deck-accent);
+}
+
+.appdeck-form__about {
+    margin: 0 0 4px 120px;
+    font-size: 10px;
+    color: var(--deck-dim);
+    white-space: normal;
+}
+
+.appdeck-form__footer {
+    flex-direction: row;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.appdeck-form__run {
+    padding: 0 16px;
+    height: 26px;
+    border-width: 0;
+    border-radius: 4px;
+    background-color: rgba(255, 216, 102, 0.85);
+    color: rgb(20, 20, 20);
+    -unity-font-style: bold;
+}
+
+/* ---------------------------------------------------------------- Metrics */
+
+.appdeck-metrics__list {
+    flex-grow: 1;
+    flex-basis: 0;
+}
+
+.appdeck-metric {
+    flex-direction: row;
+    align-items: center;
+    padding: 0 6px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(255, 255, 255, 0.03);
+}
+
+.appdeck-metric__pin {
+    width: 18px;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.2);
+    -unity-text-align: middle-center;
+}
+
+.appdeck-metric__pin:hover {
+    color: var(--deck-text);
+}
+
+.appdeck-metric__pin--on {
+    color: var(--deck-accent);
+}
+
+.appdeck-metric__name {
+    width: 200px;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.appdeck-metric__group {
+    width: 90px;
+    margin: 0;
+    color: var(--deck-dim);
+    font-size: 11px;
+}
+
+.appdeck-metric__value {
+    min-width: 90px;
+    margin: 0;
+    -unity-text-align: middle-right;
+    -unity-font-style: bold;
+}
+
+.appdeck-metric__unit {
+    width: 70px;
+    margin: 0 0 0 4px;
+    color: var(--deck-dim);
+    font-size: 11px;
+}
+
+.appdeck-metric__rate {
+    margin: 0;
+    color: var(--deck-output);
+    font-size: 11px;
+}
+
+.appdeck-metric__rate-unit {
+    margin: 0 8px 0 1px;
+    color: var(--deck-dim);
+    font-size: 11px;
+}
+
+.appdeck-metric__spark {
+    flex-grow: 1;
+    height: 20px;
+    margin-left: 8px;
+    max-width: 260px;
+}
+
+/* ---------------------------------------------------------------- мини-HUD */
+
+.appdeck-hud {
+    padding: 3px 6px;
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.55);
+    font-size: 12px;
+}
+
+.appdeck-hud__row {
+    flex-direction: row;
+    align-items: center;
+    height: 16px;
+}
+
+.appdeck-hud--right .appdeck-hud__row {
+    justify-content: flex-end;
+}
+
+.appdeck-hud__name {
+    margin: 0 6px 0 0;
+    padding: 0;
+    color: rgb(170, 175, 185);
+}
+
+.appdeck-hud__value {
+    margin: 0;
+    padding: 0;
+    color: rgb(255, 216, 102);
+    -unity-font-style: bold;
+}
+
+.appdeck-hud__unit {
+    margin: 0 0 0 3px;
+    padding: 0;
+    color: rgb(170, 175, 185);
+    font-size: 10px;
+}

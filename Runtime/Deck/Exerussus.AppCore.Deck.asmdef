@@ -1,0 +1,23 @@
+{
+    "name": "Exerussus.AppCore.Deck",
+    "rootNamespace": "Exerussus.AppCore.Deck",
+    "references": [
+        "GUID:fc400ceb3ef6b8948868273b707409c8",
+        "GUID:75469ad4d38634e559750d17036d5f7c"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "APPDECK_INPUT_SYSTEM"
+        }
+    ],
+    "noEngineReferences": false
+}
