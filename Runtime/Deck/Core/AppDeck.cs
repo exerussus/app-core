@@ -97,6 +97,13 @@ namespace Exerussus.AppCore.Deck
                 return;
             }
 
+#if !UNITY_EDITOR
+            // настройки не попали в сборку (не в Preloaded Assets собираемого профиля) — иначе это не видно
+            if (settings == null)
+                Debug.LogWarning("[AppDeck] Настройки AppDeckSettings не попали в сборку — работают умолчания. " +
+                                 "Проверьте Preloaded Assets профиля сборки.");
+#endif
+
             _log = new LogBuffer(settings != null ? settings.LogCapacity : 4096)
             {
                 Collapse = settings == null || settings.CollapseDuplicates,

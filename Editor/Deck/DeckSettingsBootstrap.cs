@@ -75,7 +75,12 @@ namespace Exerussus.AppCore.Deck.Editor
             AssetDatabase.SaveAssetIfDirty(settings);
         }
 
-        private static void EnsurePreloaded(DeckSettings settings)
+        /// <summary>
+        /// Ассет — в Preloaded Assets ТЕКУЩЕГО контекста Player Settings: глобальных или активного профиля
+        /// сборки, если тот переопределяет Player Settings (тогда PlayerSettings API работает с его списком).
+        /// true — список изменён и сохранён.
+        /// </summary>
+        internal static bool EnsurePreloaded(DeckSettings settings)
         {
             Object[] current = PlayerSettings.GetPreloadedAssets();
             var list = new List<Object>(current.Length + 1);
@@ -101,13 +106,14 @@ namespace Exerussus.AppCore.Deck.Editor
                 dirty = true;
             }
 
-            if (!dirty) return;
+            if (!dirty) return false;
 
             PlayerSettings.SetPreloadedAssets(list.ToArray());
 
             // настройки проекта — на диск сразу: иначе ProjectSettings.asset запишется только при закрытии
             // редактора, и до этого сборка/коммит не увидят ассет в Preloaded Assets
             AssetDatabase.SaveAssets();
+            return true;
         }
     }
 }

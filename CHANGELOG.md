@@ -3,6 +3,16 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.2.3]
+
+### Исправлено
+
+- AppDeck: настройки не попадали в сборку через профиль, переопределяющий Player Settings (у такого профиля
+  свой список Preloaded Assets) — AppDeck молча работал на умолчаниях. Теперь перед каждой сборкой
+  `AppDeckSettings` добавляется в Preloaded Assets собираемого профиля (или глобальных Player Settings).
+  Ссылка остаётся: файл профиля меняется один раз — закоммитьте его.
+- AppDeck в development-сборке без настроек пишет предупреждение, а не молчит.
+
 ## [4.2.2]
 
 ### Исправлено
