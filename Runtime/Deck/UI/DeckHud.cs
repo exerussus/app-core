@@ -39,13 +39,10 @@ namespace Exerussus.AppCore.Deck
             _interval = 1f / Mathf.Max(1, settings != null ? settings.HudRate : 4);
 
             DeckCorner corner = settings != null ? settings.HudCorner : DeckCorner.TopLeft;
-            bool left = corner == DeckCorner.TopLeft || corner == DeckCorner.BottomLeft;
-            bool top = corner == DeckCorner.TopLeft || corner == DeckCorner.TopRight;
-            if (left) style.left = 6;
-            else style.right = 6;
-            if (top) style.top = 6;
-            else style.bottom = 6;
-            if (!left) AddToClassList("appdeck-hud--right");
+            _left = corner == DeckCorner.TopLeft || corner == DeckCorner.BottomLeft;
+            _top = corner == DeckCorner.TopLeft || corner == DeckCorner.TopRight;
+            ApplySafeArea(0f, 0f, 0f, 0f);
+            if (!_left) AddToClassList("appdeck-hud--right");
 
             for (var i = 0; i < MaxRows; i++)
             {
@@ -53,6 +50,20 @@ namespace Exerussus.AppCore.Deck
                 _rows[i].style.display = DisplayStyle.None;
                 Add(_rows[i]);
             }
+        }
+
+        private const float Margin = 6f;
+        private readonly bool _left;
+        private readonly bool _top;
+
+        /// <summary>Угол мини-HUD — внутри безопасной зоны: отступ своей стороны + поле.</summary>
+        public void ApplySafeArea(float left, float right, float top, float bottom)
+        {
+            if (_left) style.left = Margin + left;
+            else style.right = Margin + right;
+
+            if (_top) style.top = Margin + top;
+            else style.bottom = Margin + bottom;
         }
 
         public void Tick(float deltaTime, bool deckOpen)

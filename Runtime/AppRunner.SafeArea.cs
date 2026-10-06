@@ -197,6 +197,8 @@ namespace Exerussus.AppCore
             for (var i = 0; i < _safeAreaScreens.Count; i++)
                 _safeAreaScreens[i].ApplySafeInsets(insets.Left, insets.Right, insets.Top, insets.Bottom);
 
+            ApplyVersionOverlayInsets(insets);
+
             if (_frameMaskLeft == null || _frameMaskRight == null) return;
 
             // Без обрезки поля не просто нулевой ширины, а сняты из раскладки:

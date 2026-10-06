@@ -39,6 +39,9 @@ namespace Exerussus.AppCore.Deck
         private DeckLayout _layout;
         private float _partialHeight;
 
+        // безопасная зона экрана (вырез, скругления), логические точки панели AppDeck
+        private float _safeLeft, _safeRight, _safeTop, _safeBottom;
+
         private bool _dragging;
         private float _dragStartY;
         private float _dragStartHeight;
@@ -143,7 +146,29 @@ namespace Exerussus.AppCore.Deck
             EnableInClassList("appdeck--full", full);
             _panel.style.height = Length.Percent((full ? 1f : _partialHeight) * 100f);
             _resizer.style.display = full ? DisplayStyle.None : DisplayStyle.Flex;
+            ApplySafePadding();
             _layoutButton.text = full ? "▭" : "▣";
+        }
+
+        /// <summary>
+        /// Безопасная зона: фон окна доходит до краёв экрана (под вырез), а шапка, лог и строка ввода —
+        /// внутри зоны. Низ отступает только во весь экран: шторка до низа экрана не доходит.
+        /// </summary>
+        public void ApplySafeArea(float left, float right, float top, float bottom)
+        {
+            _safeLeft = left;
+            _safeRight = right;
+            _safeTop = top;
+            _safeBottom = bottom;
+            ApplySafePadding();
+        }
+
+        private void ApplySafePadding()
+        {
+            _panel.style.paddingLeft = _safeLeft;
+            _panel.style.paddingRight = _safeRight;
+            _panel.style.paddingTop = _safeTop;
+            _panel.style.paddingBottom = _layout == DeckLayout.Full ? _safeBottom : 0f;
         }
 
         private void OnHeaderClick(ClickEvent evt)

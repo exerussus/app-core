@@ -41,6 +41,11 @@ namespace Exerussus.AppCore.Deck
         private bool _restoreVisible;
 
         private DeckBuiltinMetrics _builtinMetrics;
+
+        // безопасная зона: пересчёт только при смене экрана, выреза или размера панели
+        private Rect _safeSeen;
+        private int _safeScreenW, _safeScreenH;
+        private float _safePanelW, _safePanelH;
         private float _metricsClock;
         private float _metricsNext;
 
@@ -266,6 +271,8 @@ namespace Exerussus.AppCore.Deck
 
             if (_window == null) return;
 
+            TickSafeArea();
+
             DeckHotkey key = _settings != null ? _settings.ToggleKey : DeckHotkey.BackQuote;
             if (DeckInput.WasPressed(key))
             {
@@ -342,6 +349,48 @@ namespace Exerussus.AppCore.Deck
         }
 
         /// <summary>Верхний элемент панели AppDeck под точкой экрана или null (окно закрыто, точка мимо).</summary>
+        /// <summary>
+        /// БЕЗОПАСНАЯ ЗОНА (вырез, скругления, системные полосы): Screen.safeArea в логических точках своей панели.
+        /// Панель AppDeck — на весь экран (без полосы кадра приложения), поэтому отступы считаются от экрана.
+        /// В обычном кадре — несколько сравнений и выход.
+        /// </summary>
+        private void TickSafeArea()
+        {
+            IPanel panel = _root?.panel;
+            if (panel == null) return;
+
+            Rect safe = Screen.safeArea;
+            int width = Screen.width;
+            int height = Screen.height;
+            IResolvedStyle resolved = panel.visualTree.resolvedStyle;
+            float panelWidth = resolved.width;
+            float panelHeight = resolved.height;
+
+            if (width <= 0 || height <= 0 || float.IsNaN(panelWidth) || float.IsNaN(panelHeight) ||
+                panelWidth <= 0f || panelHeight <= 0f) return;
+
+            if (safe == _safeSeen && width == _safeScreenW && height == _safeScreenH &&
+                panelWidth.Equals(_safePanelW) && panelHeight.Equals(_safePanelH)) return;
+
+            _safeSeen = safe;
+            _safeScreenW = width;
+            _safeScreenH = height;
+            _safePanelW = panelWidth;
+            _safePanelH = panelHeight;
+
+            float sx = panelWidth / width;
+            float sy = panelHeight / height;
+
+            // Screen считает Y снизу, UI Toolkit — сверху
+            float left = Mathf.Max(0f, safe.xMin) * sx;
+            float right = Mathf.Max(0f, width - safe.xMax) * sx;
+            float top = Mathf.Max(0f, height - safe.yMax) * sy;
+            float bottom = Mathf.Max(0f, safe.yMin) * sy;
+
+            _window.ApplySafeArea(left, right, top, bottom);
+            _hud?.ApplySafeArea(left, right, top, bottom);
+        }
+
         public VisualElement PickAt(Vector2 screen)
         {
             IPanel panel = _root?.panel;

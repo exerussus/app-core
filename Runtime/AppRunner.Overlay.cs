@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Build;
+using Exerussus.AppCore.Layout;
 
 namespace Exerussus.AppCore
 {
@@ -15,6 +16,8 @@ namespace Exerussus.AppCore
     public partial class AppRunner
     {
         private Label _versionOverlay;
+        private bool _versionLeft;
+        private bool _versionTop;
 
         /// <summary>Элемент строки версии. <c>null</c>, если оверлей выключен.</summary>
         public Label VersionOverlay => _versionOverlay;
@@ -36,17 +39,30 @@ namespace Exerussus.AppCore
             style.paddingTop = style.paddingBottom = 3;
 
             var corner = buildInfo.OverlayCorner;
-            var left = corner is VersionOverlayCorner.TopLeft or VersionOverlayCorner.BottomLeft;
-            var top = corner is VersionOverlayCorner.TopLeft or VersionOverlayCorner.TopRight;
+            _versionLeft = corner is VersionOverlayCorner.TopLeft or VersionOverlayCorner.BottomLeft;
+            _versionTop = corner is VersionOverlayCorner.TopLeft or VersionOverlayCorner.TopRight;
 
-            if (left) style.left = 0;
-            else style.right = 0;
-
-            if (top) style.top = 0;
-            else style.bottom = 0;
+            ApplyVersionOverlayInsets(ScreenMetrics.HasValue ? ScreenMetrics.Insets : default);
 
             _contentRoot.Add(_versionOverlay);
             _versionOverlay.BringToFront();
+        }
+
+        /// <summary>
+        /// Строка версии — внутри безопасной зоны: её угол отступает от выреза и скруглений на отступ
+        /// своей стороны. Отступы — относительно полосы кадра, а строка живёт в ней же (contentRoot).
+        /// </summary>
+        private void ApplyVersionOverlayInsets(in SafeAreaInsets insets)
+        {
+            if (_versionOverlay == null) return;
+
+            var style = _versionOverlay.style;
+
+            if (_versionLeft) style.left = insets.Left;
+            else style.right = insets.Right;
+
+            if (_versionTop) style.top = insets.Top;
+            else style.bottom = insets.Bottom;
         }
 
         /// <summary>Поднимает строку версии над только что показанным скрином.</summary>
