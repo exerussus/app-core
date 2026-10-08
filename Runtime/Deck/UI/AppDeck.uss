@@ -267,14 +267,14 @@
     border-top-color: var(--deck-line);
 }
 
-.appdeck-console__details-text {
+.appdeck-console__details-scroll {
     flex-grow: 1;
-    margin: 0;
+    background-color: rgba(0, 0, 0, 0.25);
 }
 
-.appdeck-console__details-text .unity-text-field__input {
-    background-color: rgba(0, 0, 0, 0.25);
-    border-width: 0;
+.appdeck-console__details-text {
+    margin: 0;
+    padding: 4px 6px;
     color: var(--deck-text);
     -unity-text-align: upper-left;
     white-space: normal;

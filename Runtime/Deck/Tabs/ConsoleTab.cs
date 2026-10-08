@@ -42,7 +42,8 @@ namespace Exerussus.AppCore.Deck
         private ConsoleInput _input;
         private TextField _search;
         private VisualElement _details;
-        private TextField _detailsText;
+        private ScrollView _detailsScroll;
+        private Label _detailsText;
         private Button _collapseButton;
         private Button _stickButton;
         private readonly Button[] _filterButtons = new Button[4];
@@ -125,10 +126,16 @@ namespace Exerussus.AppCore.Deck
             _details = new VisualElement { name = "details" };
             _details.AddToClassList("appdeck-console__details");
             _details.style.display = DisplayStyle.None;
-            _detailsText = new TextField { multiline = true, isReadOnly = true };
+            // ПОДРОБНОСТИ — ПРОКРУТКОЙ: длинная запись (help, стек) не влезает в панель. Текст выделяется мышью.
+            _detailsScroll = new ScrollView(ScrollViewMode.Vertical) { name = "details-scroll" };
+            _detailsScroll.AddToClassList("appdeck-console__details-scroll");
+            _detailsScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            _detailsScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
+            _detailsText = new Label { enableRichText = false };
+            _detailsText.selection.isSelectable = true;
             _detailsText.AddToClassList("appdeck-console__details-text");
-            _detailsText.verticalScrollerVisibility = ScrollerVisibility.Auto;
-            _details.Add(_detailsText);
+            _detailsScroll.Add(_detailsText);
+            _details.Add(_detailsScroll);
             root.Add(_details);
 
             _input = new ConsoleInput(_settings != null ? _settings.HistorySize : 64);
@@ -335,7 +342,8 @@ namespace Exerussus.AppCore.Deck
             }
 
             _details.style.display = DisplayStyle.Flex;
-            _detailsText.value = DetailsOf(_bound, seq);
+            _detailsText.text = DetailsOf(_bound, seq);
+            _detailsScroll.scrollOffset = Vector2.zero;
         }
 
         private static string DetailsOf(LogBuffer log, long seq)
