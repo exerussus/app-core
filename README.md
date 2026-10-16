@@ -35,7 +35,7 @@ Runtime/
 Editor/
 ├── AppCoreAssets.cs         единственные ассеты Settings: поиск, создание
 ├── Views/                   инспекторы вью, генерация контроллеров и .Elements.cs
-├── Build/                   штамп BuildInfo вокруг билда, GitInfo
+├── Build/                   штамп BuildInfo вокруг билда, GitInfo, контракт шагов сборки
 ├── Text/                    наборы символов, запекание шрифтов, проверка перед билдом
 └── Tools/                   Validate, Sync Views, Migrate to 4.0
 ```
@@ -150,6 +150,15 @@ Id и аргумент — строки: для обвязки и модульн
 `BuildInfo` штампуется перед любым билдом (версия, хэш, профиль, платформа, время) и
 откатывается после. `AppRunner` рисует строку версии в углу полосы кадра — режим, угол,
 прозрачность и формат настраиваются в Nexus → App → Сборка → BuildInfo.
+
+## Шаги сборки
+
+Контракт пре-/пост-процессов пайплайна сборки (Nexus → App → Сборка) — в
+`Exerussus.AppCore.Editor.Build`: `BuildStep<TSettings>` с `[BuildStep(id, name, stage)]`,
+`BuildStepContext`, `BuildTokens`, `IBuildStepHost` (UI настроек в стиле окна, личные файлы
+в UserSettings). Пайплайн находит шаги во всех сборках проекта, так что свой шаг может
+лежать в любом пакете со ссылкой на `Exerussus.AppCore.Editor`: нет пакета — нет шага.
+Подробности и правила — в шапке `Editor/Build/Pipeline/BuildSteps.cs`.
 
 ## Текст
 

@@ -3,6 +3,16 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.3.0]
+
+### Добавлено
+
+- Контракт шагов сборки (`Exerussus.AppCore.Editor.Build`): `BuildStage`, `[BuildStep]`, `IBuildStep`,
+  `BuildStep<TSettings>`, `BuildStepContext`, `BuildTokens`, `IBuildStepHost`. Раньше он был внутри
+  страницы App в Nexus и сторонний пакет не мог добавить свой шаг; теперь пайплайн (Nexus App 3.0+)
+  берёт шаги из любой сборки, ссылающейся на `Exerussus.AppCore.Editor`.
+- `BuildStepContext.CompletedSteps` — id уже выполненных шагов; `LastArtifact(".zip")`.
+
 ## [4.2.4]
 
 ### Исправлено
