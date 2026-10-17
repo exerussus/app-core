@@ -193,7 +193,16 @@ namespace Exerussus.AppCore.Editor
             var type = FindControllerType(kind, id);
             if (type != null)
             {
-                // Класс есть, но вторую половину с элементами могли ещё не сгенерировать.
+                // Класс скомпилирован и половина с элементами на месте — значит, он уже partial
+                // (иначе две половины не собрались бы вместе). Только навешиваем, на диск не пишем:
+                // поля элементов при правке uxml обновляет ViewUxmlPostprocessor.
+                if (File.Exists(AppCorePaths.ControllerElementsPath(kind, id)))
+                {
+                    AttachNow(view, type);
+                    return;
+                }
+
+                // Половины с элементами ещё нет — генерируем её и навешиваем после компиляции.
                 if (ViewCodeGenerator.GenerateController(kind, id, out _))
                 {
                     PendingControllerAttach.Enqueue(view, kind, id);

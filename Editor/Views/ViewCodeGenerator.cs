@@ -269,20 +269,102 @@ namespace Exerussus.AppCore.Editor
         }
 
         /// <summary>Дописывает <c>partial</c> в объявление класса. <c>true</c> — файл изменён.</summary>
+        /// <summary>
+        /// Дописывает <c>partial</c> к объявлению класса, если его там нет. Пишет файл только при изменении.
+        /// </summary>
+        /// <remarks>
+        /// Модификаторы смотрим по всему объявлению — от предыдущего <c>;</c>, <c>{</c>, <c>}</c> или <c>]</c>
+        /// до слова <c>class</c>, — поэтому их порядок не важен (<c>public sealed partial class</c>,
+        /// <c>partial sealed class</c> и т.п.). Комментарии на поиск не влияют.
+        /// </remarks>
         public static bool EnsurePartial(string path, string className)
         {
             var code = File.ReadAllText(path);
-            var rx = new Regex(@"((?:public|internal|sealed|abstract|\s)*)\bclass\s+" + Regex.Escape(className) + @"\b");
-            var m = rx.Match(code);
+            var masked = MaskComments(code);
+
+            var m = Regex.Match(masked, @"\bclass\s+" + Regex.Escape(className) + @"\b");
             if (!m.Success) return false;
-            if (Regex.IsMatch(m.Value, @"\bpartial\b")) return false;
+            if (DeclarationHasModifier(masked, m.Index, "partial")) return false;
 
-            var updated = code.Substring(0, m.Index) +
-                          Regex.Replace(m.Value, @"\bclass\b", "partial class") +
-                          code.Substring(m.Index + m.Length);
-
+            var updated = code.Substring(0, m.Index) + "partial " + code.Substring(m.Index);
             File.WriteAllText(path, updated, new UTF8Encoding(HasBom(path)));
             return true;
+        }
+
+        private static readonly char[] DeclarationBreaks = { ';', '{', '}', ']' };
+
+        /// <summary>
+        /// Есть ли модификатор в объявлении, которое заканчивается словом <c>class</c> на <paramref name="classIndex"/>.
+        /// <paramref name="masked"/> — код с вычищенными комментариями (<see cref="MaskComments"/>).
+        /// </summary>
+        private static bool DeclarationHasModifier(string masked, int classIndex, string modifier)
+        {
+            var start = classIndex > 0 ? masked.LastIndexOfAny(DeclarationBreaks, classIndex - 1) : -1;
+            var head = masked.Substring(start + 1, classIndex - start - 1);
+            return Regex.IsMatch(head, @"\b" + Regex.Escape(modifier) + @"\b");
+        }
+
+        /// <summary>
+        /// Копия кода, где комментарии и строковые литералы заменены пробелами (переводы строк сохраняются),
+        /// — индексы совпадают с исходником.
+        /// </summary>
+        private static string MaskComments(string code)
+        {
+            var chars = code.ToCharArray();
+            var i = 0;
+            while (i < chars.Length)
+            {
+                var c = chars[i];
+                var next = i + 1 < chars.Length ? chars[i + 1] : '\0';
+
+                if (c == '/' && next == '/')
+                {
+                    while (i < chars.Length && chars[i] != '\n') chars[i++] = ' ';
+                }
+                else if (c == '/' && next == '*')
+                {
+                    chars[i++] = ' ';
+                    chars[i++] = ' ';
+                    while (i < chars.Length && !(chars[i] == '*' && i + 1 < chars.Length && chars[i + 1] == '/'))
+                    {
+                        if (chars[i] != '\n') chars[i] = ' ';
+                        i++;
+                    }
+
+                    if (i < chars.Length) { chars[i++] = ' '; chars[i++] = ' '; }
+                }
+                else if (c == '"')
+                {
+                    var verbatim = i > 0 && chars[i - 1] == '@';
+                    chars[i++] = ' ';
+                    while (i < chars.Length)
+                    {
+                        if (verbatim && chars[i] == '"' && i + 1 < chars.Length && chars[i + 1] == '"') { chars[i++] = ' '; chars[i++] = ' '; continue; }
+                        if (!verbatim && chars[i] == '\\' && i + 1 < chars.Length) { chars[i++] = ' '; chars[i++] = ' '; continue; }
+                        if (chars[i] == '"') { chars[i++] = ' '; break; }
+                        if (chars[i] != '\n') chars[i] = ' ';
+                        i++;
+                    }
+                }
+                else if (c == '\'')
+                {
+                    // символьный литерал: '\'' и ';' не должны ломать поиск границы объявления
+                    chars[i++] = ' ';
+                    while (i < chars.Length && chars[i] != '\'' && chars[i] != '\n')
+                    {
+                        if (chars[i] == '\\' && i + 1 < chars.Length) chars[i++] = ' ';
+                        chars[i++] = ' ';
+                    }
+
+                    if (i < chars.Length && chars[i] == '\'') chars[i++] = ' ';
+                }
+                else
+                {
+                    i++;
+                }
+            }
+
+            return new string(chars);
         }
 
         private static bool HasBom(string path)
