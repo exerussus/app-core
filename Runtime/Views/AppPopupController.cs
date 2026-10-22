@@ -1,6 +1,7 @@
 ﻿using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Views
 {
@@ -17,6 +18,14 @@ namespace Exerussus.AppCore.Views
         /// переключать фрагменты, не разыскивая попап через GetComponent.
         /// </summary>
         public AppPopup Popup { get; internal set; }
+
+        /// <summary>Тексты (см. <see cref="AppPageController.Text"/>).</summary>
+        protected LocBinder Text => Popup != null ? Popup.Text : LocBinder.Passthrough;
+
+        /// <summary>Язык сменился, тексты уже пересобраны (см. <see cref="AppPageController"/>).</summary>
+        protected virtual void OnLanguageChanged() { }
+
+        internal void NotifyLanguageChanged() => OnLanguageChanged();
 
         /// <summary>Привязка именованных элементов. Переопределяется сгенерированным partial-файлом.</summary>
         protected virtual void BindElements() { }

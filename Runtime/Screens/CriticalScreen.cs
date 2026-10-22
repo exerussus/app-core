@@ -3,6 +3,7 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEngine.SceneManagement;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -53,7 +54,7 @@ namespace Exerussus.AppCore.Screens
             }
             else if (_messageLabel != null)
             {
-                _messageLabel.text = message;
+                Text.Set(_messageLabel, message);
                 _rebootButton.style.display = canReboot ? DisplayStyle.Flex : DisplayStyle.None;
             }
             else
@@ -115,11 +116,11 @@ namespace Exerussus.AppCore.Screens
             row.style.flexDirection = FlexDirection.Row;
             row.style.justifyContent = Justify.Center;
 
-            _rebootButton = BuildButton("Перезапустить");
+            _rebootButton = BuildButton(LocBuiltin.Text(LocBuiltin.Restart));
             _rebootButton.clicked += InvokeReboot;
             row.Add(_rebootButton);
 
-            var quitButton = BuildButton("Выйти");
+            var quitButton = BuildButton(LocBuiltin.Text(LocBuiltin.Quit));
             quitButton.clicked += InvokeQuit;
             row.Add(quitButton);
 

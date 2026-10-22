@@ -110,6 +110,9 @@ namespace Exerussus.AppCore.Deck
             };
 
             _host = DeckHost.Create(settings);
+
+            // Настройки локализации к этому моменту подняты (Preloaded Assets) — видно, включена ли она.
+            DeckLocCommands.Register();
         }
 
         private static void Unsubscribe()

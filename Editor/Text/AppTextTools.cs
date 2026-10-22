@@ -87,7 +87,23 @@ namespace Exerussus.AppCore.Editor
             if (s != null && s.scanSources)
             {
                 var scanned = new HashSet<uint>();
-                ScanSources(scanned, s.scanFolders, s.scanExtensions, out filesScanned, locations);
+                var extensions = new List<string>(s.scanExtensions ?? new List<string>());
+                var folders = new List<string>(s.scanFolders ?? new List<string>());
+
+                // Таблицы локализации — главный источник текста: сканируются всегда, когда она включена,
+                // даже если в старых настройках .loc нет в списке расширений, а таблица лежит вне папок.
+                var loc = Exerussus.AppCore.Localization.LocSettings.Current;
+                if (loc != null && loc.Enabled)
+                {
+                    if (!extensions.Exists(e => string.Equals(e, ".loc", StringComparison.OrdinalIgnoreCase))) extensions.Add(".loc");
+
+                    var table = loc.BaseTable != null ? UnityEditor.AssetDatabase.GetAssetPath(loc.BaseTable) : null;
+                    var dir = string.IsNullOrEmpty(table) ? null : Path.GetDirectoryName(table)?.Replace('\\', '/');
+                    if (!string.IsNullOrEmpty(dir) && !folders.Exists(f => !string.IsNullOrEmpty(f) && dir.StartsWith(f.TrimEnd('/'), StringComparison.Ordinal)))
+                        folders.Add(dir);
+                }
+
+                ScanSources(scanned, folders, extensions, out filesScanned, locations);
 
                 foreach (var code in scanned)
                 {

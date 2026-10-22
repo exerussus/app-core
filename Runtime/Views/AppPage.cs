@@ -2,6 +2,7 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Localization;
 using Exerussus.AppCore.Navigation;
 
 namespace Exerussus.AppCore.Views
@@ -48,6 +49,7 @@ namespace Exerussus.AppCore.Views
 
         private readonly ViewRoot _view = new();
         private readonly FragmentSlots _fragments = new();
+        private readonly ViewText _text = new();
 
         public string PageId => pageId;
         public ViewKind Kind => ViewKind.Page;
@@ -61,6 +63,13 @@ namespace Exerussus.AppCore.Views
         public PageCursorMode CursorMode => cursorMode;
 
         public bool HasController => _hasController;
+
+        /// <summary>
+        /// Тексты страницы: ключи <c>^</c> вёрстки уже переведены и сменятся вместе с языком.
+        /// Строки из кода ставятся через <c>Text.Set(label, "^KEY")</c>. При выключенной
+        /// локализации — пустышка, ставящая текст как есть.
+        /// </summary>
+        public LocBinder Text => _text.Binder;
 
         /// <summary>Корневой элемент, созданный при монтировании. Null до вызова Mount.</summary>
         public VisualElement Root => _view.Root;
@@ -96,8 +105,17 @@ namespace Exerussus.AppCore.Views
             AppRunner?.RegisterSafeArea(_view);
 
             _fragments.CollectHosts(Root, AppRunner);
+
+            _text.Attach(Root, this, OnLanguageChanged);
             return true;
         }
+
+        private void OnLanguageChanged()
+        {
+            if (_hasController) controller.NotifyLanguageChanged();
+        }
+
+        private void OnDestroy() => _text.Detach();
 
         public void Unmount()
         {

@@ -1,6 +1,7 @@
 ﻿using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Views
 {
@@ -19,6 +20,20 @@ namespace Exerussus.AppCore.Views
         /// переключать фрагменты, не разыскивая страницу через GetComponent.
         /// </summary>
         public AppPage Page { get; internal set; }
+
+        /// <summary>
+        /// Тексты страницы (<see cref="LocBinder"/>): <c>Text.Set(label, "^KEY")</c> ставит строку,
+        /// которая сменится вместе с языком. Ключи вёрстки переведены до <see cref="Initialize"/>.
+        /// </summary>
+        protected LocBinder Text => Page != null ? Page.Text : LocBinder.Passthrough;
+
+        /// <summary>
+        /// Язык сменился, тексты вёрстки и заданные через <see cref="Text"/> уже пересобраны.
+        /// Переопределяется, если контроллер собирает строки сам (списки, форматирование).
+        /// </summary>
+        protected virtual void OnLanguageChanged() { }
+
+        internal void NotifyLanguageChanged() => OnLanguageChanged();
 
         /// <summary>Привязка именованных элементов. Переопределяется сгенерированным partial-файлом.</summary>
         protected virtual void BindElements() { }

@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Views;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -41,6 +42,7 @@ namespace Exerussus.AppCore.Screens
         [SerializeField, HideInInspector, FormerlySerializedAs("safeTree")] private VisualTreeAsset legacySafeTree;
 
         private readonly ViewRoot _view = new();
+        private readonly ViewText _text = new();
         private VisualElement _parent;
         private VisualElement _root;
         private bool _mounted;
@@ -50,6 +52,12 @@ namespace Exerussus.AppCore.Screens
 
         /// <summary>Корень визуала скрина. Валиден только после <see cref="Mount"/>. Ищет по обоим слоям.</summary>
         protected VisualElement Root => _root;
+
+        /// <summary>
+        /// Тексты скрина: ключи <c>^</c> вёрстки и код-фолбэка переведены и сменятся вместе с языком.
+        /// Сообщение, пришедшее ключом, ставится через <c>Text.Set(label, message)</c>.
+        /// </summary>
+        protected LocBinder Text => _text.Binder;
 
         /// <summary>Слой во всю полосу кадра — диммер и фон.</summary>
         protected VisualElement FullRoot => _view.Full;
@@ -89,6 +97,7 @@ namespace Exerussus.AppCore.Screens
             _parent.Add(_root);
 
             OnMounted(_root);
+            _text.Attach(_root, this, null);
             gameObject.SetActive(false);
         }
 
@@ -122,6 +131,8 @@ namespace Exerussus.AppCore.Screens
         /// элементы, вешает обработчики кнопок и (если есть) инициализирует контроллер.
         /// </summary>
         protected abstract void OnMounted(VisualElement root);
+
+        protected virtual void OnDestroy() => _text.Detach();
 
         /// <summary>
         /// Строит фон кодом, когда вёрстка не задана: диммер во всю полосу кадра.

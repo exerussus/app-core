@@ -481,7 +481,7 @@ namespace Exerussus.AppCore
             overlay.style.alignItems = Align.Center;
             overlay.pickingMode = PickingMode.Position;
 
-            var label = new Label($"Критическая ошибка\n{message}");
+            var label = new Label($"{Localization.LocBuiltin.Resolve(Localization.LocBuiltin.CriticalError)}\n{Localization.Loc.Get(message)}");
             label.style.color = Color.white;
             label.style.fontSize = 20;
             label.style.unityTextAlign = TextAnchor.MiddleCenter;

@@ -2,6 +2,7 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Localization;
 using Exerussus.AppCore.Navigation;
 
 namespace Exerussus.AppCore.Views
@@ -32,6 +33,7 @@ namespace Exerussus.AppCore.Views
 
         private readonly ViewRoot _view = new();
         private readonly FragmentSlots _fragments = new();
+        private readonly ViewText _text = new();
 
         public PopupId PopupUid { get; private set; }
         public string PopupId => popupId;
@@ -39,6 +41,9 @@ namespace Exerussus.AppCore.Views
         public string ViewId => popupId;
         public AppPopupController Controller => controller;
         public bool HasController => _hasController;
+
+        /// <summary>Тексты попапа (см. <see cref="AppPage.Text"/>).</summary>
+        public LocBinder Text => _text.Binder;
         public AppRunner AppRunner { get; internal set; }
 
         public VisualElement Root => _view.Root;
@@ -73,6 +78,8 @@ namespace Exerussus.AppCore.Views
 
                 AppRunner?.RegisterSafeArea(_view);
                 _fragments.CollectHosts(Root, AppRunner);
+
+                _text.Attach(Root, this, OnLanguageChanged);
             }
 
             Root.style.display = DisplayStyle.Flex;
@@ -83,6 +90,13 @@ namespace Exerussus.AppCore.Views
         {
             if (Root != null) Root.style.display = DisplayStyle.None;
         }
+
+        private void OnLanguageChanged()
+        {
+            if (_hasController) controller.NotifyLanguageChanged();
+        }
+
+        private void OnDestroy() => _text.Detach();
 
         public void PreInitialize()
         {

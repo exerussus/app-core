@@ -1,6 +1,7 @@
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Views
 {
@@ -44,6 +45,7 @@ namespace Exerussus.AppCore.Views
         [SerializeField] private bool unmountOnHide;
 
         private bool _hasController;
+        private readonly ViewText _text = new();
 
         public string FragmentIdRaw => fragmentId;
         public string HostIdRaw => hostId;
@@ -53,6 +55,9 @@ namespace Exerussus.AppCore.Views
         public bool UnmountOnHide => unmountOnHide;
         public ViewKind Kind => ViewKind.Fragment;
         public string ViewId => fragmentId;
+
+        /// <summary>Тексты фрагмента (см. <see cref="AppPage.Text"/>). Живут, пока вёрстка смонтирована.</summary>
+        public LocBinder Text => _text.Binder;
 
         /// <summary>
         /// Корневой элемент. Null, пока фрагмент не смонтирован.
@@ -95,6 +100,8 @@ namespace Exerussus.AppCore.Views
             Root.style.display = DisplayStyle.None;
             host.Add(Root);
 
+            _text.Attach(Root, this, OnLanguageChanged);
+
             if (_hasController)
             {
                 controller.Root = Root;
@@ -134,10 +141,18 @@ namespace Exerussus.AppCore.Views
         }
 
         /// <summary>Сносит вёрстку. Ссылки контроллера на элементы после этого недействительны.</summary>
+        private void OnLanguageChanged()
+        {
+            if (_hasController) controller.NotifyLanguageChanged();
+        }
+
+        private void OnDestroy() => _text.Detach();
+
         public void Unmount()
         {
             if (Root == null) return;
 
+            _text.Detach();
             Root.RemoveFromHierarchy();
             Root = null;
             IsVisible = false;

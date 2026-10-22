@@ -20,11 +20,14 @@ namespace Exerussus.AppCore
         public const string ContainersDir = Root + "/Containers";
         public const string UIToolkitDir = Root + "/UIToolkit";
         public const string GeneratedDir = Root + "/Generated";
+        public const string LocalizationDir = Root + "/Localization";
 
         public const string NavigationSettingsPath = SettingsDir + "/NavigationSettings.asset";
         public const string BuildInfoPath = SettingsDir + "/BuildInfo.asset";
         public const string TextSettingsPath = SettingsDir + "/TextSettings.asset";
         public const string BuildConfigPath = SettingsDir + "/build-config.json";
+        public const string LocalizationSettingsPath = SettingsDir + "/LocalizationSettings.asset";
+        public const string BaseLocTablePath = LocalizationDir + "/base.loc";
 
         public const string NavigationUssPath = StylesDir + "/Navigation.uss";
         public const string TagsUssPath = StylesDir + "/Tags.uss";
@@ -38,6 +41,7 @@ namespace Exerussus.AppCore
         public const string LoadingScreenPath = ContainersDir + "/LoadingScreen.uxml";
 
         public const string NavTargetsPath = GeneratedDir + "/NavTargets.cs";
+        public const string LocKeysPath = GeneratedDir + "/LocKeys.cs";
 
         /// <summary>Namespace сгенерированных id (<c>NavTargets</c>).</summary>
         public const string GeneratedNamespace = "App.Navigation";

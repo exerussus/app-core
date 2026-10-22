@@ -3,6 +3,30 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.4.0]
+
+### Добавлено
+
+- Локализация (`Exerussus.AppCore.Localization`), выключаемая галочкой: выключено — ничего не грузится,
+  не обходится и не патчится.
+  - Свой строковый формат `.loc` (`LocFormat` — чтение с номерами строк в ошибках и запись с сохранением
+    комментариев), импортёр `.loc` как `TextAsset`, `LocTable`.
+  - `Loc`: перевод `^KEY`, `Format`, `Plural` (формы `one/few/many…`, правила `PluralRules`), языки,
+    фолбэки, запоминание выбора.
+  - Слои-патчи с id от вызывающего: `AddLayer`, `AddLayerFromText`, `AddLayerFromFile`, `RemoveLayer(s)`,
+    `Batch`. Порядок добавления решает, кто главнее. Ограничения модов: удаления (по умолчанию нельзя),
+    защищённые ключи, теги разметки (Allow / Validate / Strip).
+  - История ключей (`Loc.History`, `WhereFrom`, `Overrides`, `Layers`) по настройке Trace.
+  - `LocBinder`: перевод вёрстки и строк из кода, пересборка на смене языка, `ILocTextProcessor`,
+    `ILocalizedElement`. У страниц, попапов, фрагментов и скринов — свой биндер; у контроллеров —
+    `Text` и `OnLanguageChanged()`.
+  - Встроенный слой `appcore`: кнопки код-фолбэков скринов (`APPCORE_*`).
+  - Редактор: `LocalizationSettings` в Preloaded Assets, базовая таблица, константы `L` (`LocKeys.cs`),
+    горячая перезагрузка в Play Mode, проверка ключей перед сборкой, `LocKeyScanner`.
+  - AppDeck: `loc.lang`, `loc.where`, `loc.history`, `loc.missing`, `loc.layers`, `loc.reload`.
+- Текст: таблицы `.loc` сканируются на символы для атласов (в новых настройках — `.loc` в расширениях,
+  при включённой локализации — всегда).
+
 ## [4.3.1]
 
 ### Исправлено

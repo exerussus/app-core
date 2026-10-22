@@ -69,7 +69,7 @@ namespace Exerussus.AppCore.Editor
         [Header("Сканирование исходников")]
         public bool scanSources = true;
         public List<string> scanFolders = new() { AppCorePaths.Root };
-        public List<string> scanExtensions = new() { ".cs", ".uxml", ".uss" };
+        public List<string> scanExtensions = new() { ".cs", ".uxml", ".uss", ".loc" };
 
         [Header("Шрифты")]
         public FontAsset primaryFont;

@@ -2,6 +2,7 @@
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -40,7 +41,7 @@ namespace Exerussus.AppCore.Screens
             }
             else if (_messageLabel != null)
             {
-                _messageLabel.text = message;
+                Text.Set(_messageLabel, message);
             }
             else
             {
@@ -74,7 +75,7 @@ namespace Exerussus.AppCore.Screens
             _messageLabel = BuildMessageLabel(string.Empty);
             box.Add(_messageLabel);
 
-            var close = BuildButton("Закрыть");
+            var close = BuildButton(LocBuiltin.Text(LocBuiltin.Close));
             close.clicked += Dismiss;
             box.Add(close);
 
