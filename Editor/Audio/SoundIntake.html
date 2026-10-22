@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Приёмка звуков</title>
+<style>
+:root{
+  --bg:#0f1115;--panel:#171a21;--card:#1d212a;--line:#2a2f3a;--text:#e9ecf2;--dim:#8d94a3;
+  --accent:#ff7a1a;--ok:#3ccf7a;--warn:#ffb020;--bad:#ff5a5a;--radius:12px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,select{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--line);background:#232836;border-radius:8px;padding:6px 12px}
+button:hover,select:hover{border-color:#3b4252}
+button:disabled{opacity:.4;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1a0d00;font-weight:600}
+button.ghost{background:transparent}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+input[type=text],input[type=search],input[type=number]{font:inherit;color:inherit;background:#12151b;border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%}
+input[type=range]{accent-color:var(--accent);width:100%;margin:0}
+header{position:sticky;top:0;z-index:5;background:rgba(15,17,21,.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar{max-width:1180px;margin:0 auto;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.bar h1{font-size:17px;margin:0 6px 0 0;white-space:nowrap}
+.progress{flex:1;min-width:160px}
+.progress .t{font-size:12px;color:var(--dim);margin-bottom:4px}
+.progress .track{height:6px;background:#262b36;border-radius:4px;overflow:hidden}
+.progress .fill{height:100%;background:var(--accent);width:0;transition:width .25s}
+.tools{max-width:1180px;margin:0 auto;padding:0 16px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tools .search{flex:1;min-width:200px}
+.master{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--dim);min-width:220px}
+.master input{width:120px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none}
+.seg button{border:0;border-radius:0;background:transparent;padding:5px 10px}
+.seg button.on{background:#2b3140;color:var(--accent)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+details.help{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px}
+details.help summary{cursor:pointer;font-weight:600}
+details.help ol{margin:10px 0 4px;padding-left:20px}
+details.help li{margin:4px 0}
+details.help code{font-family:var(--mono);background:#0c0e12;padding:1px 5px;border-radius:4px}
+.group h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:24px 0 10px;display:flex;gap:10px;align-items:baseline}
+.group h2 .c{font-family:var(--mono);letter-spacing:0;text-transform:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:10px;align-items:start}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s,background .15s}
+.card.filled{border-color:rgba(60,207,122,.45)}
+.card.drag{border-color:var(--accent);background:#262019}
+.card .top{display:flex;gap:8px;align-items:flex-start}
+.card .names{flex:1;min-width:0}
+.card .key{font-family:var(--mono);font-weight:600;font-size:13px;user-select:all}
+.card .when{color:var(--dim);font-size:12.5px}
+.badge{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:999px;background:#2a2f3a;color:var(--dim);white-space:nowrap}
+.card.filled .badge{background:rgba(60,207,122,.16);color:var(--ok)}
+.moderow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.moderow select{padding:5px 8px;flex:1;min-width:120px}
+.moderow .sp{flex:1}
+.warnline{font-size:12px;color:var(--warn)}
+.warnline.bad{color:var(--bad)}
+.warnline.info{color:var(--dim)}
+.folder{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px}
+.folder .txt{flex:1;min-width:220px}
+.folder .txt b{font-family:var(--mono);font-weight:600}
+.folder.need{border-color:var(--accent);background:#221a12}
+.folder.flash{animation:flash .9s ease 2}
+@keyframes flash{50%{box-shadow:0 0 0 3px rgba(255,122,26,.5)}}
+.files{display:flex;flex-direction:column;gap:4px}
+.file{display:flex;gap:6px;align-items:center;background:#161920;border-radius:8px;padding:4px 6px}
+.file .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.file .m{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:nowrap}
+.file .m.long{color:var(--warn)}
+.file button{padding:2px 8px;font-size:12px}
+.card.off .files,.card.def .files{opacity:.55}
+button.play.on{color:var(--accent);border-color:var(--accent)}
+details.tune{border-top:1px solid var(--line);padding-top:6px}
+details.tune summary{cursor:pointer;font-size:12.5px;color:var(--dim)}
+details.tune summary .v{font-family:var(--mono);font-size:11.5px}
+details.tune summary .v.changed{color:var(--accent)}
+.knobs{display:grid;grid-template-columns:118px 1fr 52px;gap:6px 8px;align-items:center;margin-top:8px;font-size:12.5px}
+.knobs .lbl{color:var(--dim)}
+.knobs .val{font-family:var(--mono);font-size:12px;text-align:right}
+.knobs .sub{grid-column:1/-1;font-size:11.5px;color:var(--dim);margin-top:4px;text-transform:uppercase;letter-spacing:.05em}
+.knobs input[type=number]{padding:3px 6px;grid-column:2/4}
+.actions{display:flex;gap:6px;align-items:center}
+.actions .sp{flex:1}
+.note{font-size:12.5px}
+.overlay{position:fixed;inset:0;background:rgba(255,122,26,.08);border:3px dashed var(--accent);display:none;align-items:center;justify-content:center;z-index:20;pointer-events:none;font-size:20px;font-weight:600;color:var(--accent);text-align:center;padding:16px}
+.overlay.on{display:flex}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#232836;border:1px solid var(--line);border-radius:10px;padding:10px 14px;max-width:min(680px,calc(100% - 32px));z-index:30;display:none;white-space:pre-line}
+.toast.on{display:block}
+.modal{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px}
+.modal[hidden]{display:none}
+.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:460px;width:100%}
+.modal h3{margin:0 0 8px;font-size:17px}
+.modal p{margin:0 0 10px}
+.modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.empty{color:var(--dim);padding:24px 0;text-align:center}
+.hint{font-size:12px;color:var(--dim)}
+@media (max-width:520px){.grid{grid-template-columns:1fr}.bar h1{font-size:15px}.knobs{grid-template-columns:100px 1fr 48px}}
+.file .fvol{width:72px;flex:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1 id="title">Приёмка звуков</h1>
+    <div class="progress"><div class="t" id="progressText">—</div><div class="track"><div class="fill" id="progressFill"></div></div></div>
+    <button class="primary" id="folderBtn" hidden>Выбрать рабочую папку</button>
+    <button class="ghost danger" id="clearAll">Очистить всё</button>
+    <button class="primary" id="build">Собрать архив</button>
+  </div>
+  <div class="tools">
+    <input class="search" type="search" id="search" placeholder="Поиск: ключ, название, момент">
+    <div class="seg" id="filter">
+      <button data-f="all" class="on">Все</button>
+      <button data-f="empty">Пустые</button>
+      <button data-f="filled">С файлами</button>
+      <button data-f="changed">Изменённые</button>
+    </div>
+    <label class="master">Общая громкость <input type="range" id="master" min="0" max="1" step="0.01"><span id="masterVal" class="val">100%</span></label>
+  </div>
+</header>
+
+<main>
+  <div class="folder" id="folder">Загрузка…</div>
+  <details class="help" id="help" open>
+    <summary>Инструкция</summary>
+    <ol>
+      <li><b>Рабочая папка.</b> Распакуй архив от разработчика, открой этот html и нажми <b>«Выбрать рабочую папку»</b> — укажи папку, где лежит этот html (в ней <code>manifest.json</code> и <code>Clips</code>). Все звуки, что уже есть в игре, сразу видны и слышны. Нужен Chrome, Edge или Яндекс.Браузер.</li>
+      <li>Каждая карточка — одно событие игры: <b>ключ</b> (путь, как папки), название и <b>когда звучит</b>. Внизу — <b>дефолтные звуки</b>: общий набор, которым играют события в режиме «Дефолт».</li>
+      <li><b>Режим</b> события, как в игре: <b>Молчит</b> · <b>Дефолт</b> (выбери, какой) · <b>Свои</b> (файлы этой карточки). Добавил файлы — режим сам станет «Свои». У дефолтов — только Молчит или Свои.</li>
+      <li>Файлы: перетащи на карточку или <b>«+ Файлы»</b> (<code>wav</code>, <code>ogg</code>, <code>mp3</code>, <code>aif</code>). Несколько файлов = <b>варианты</b>: в игре каждый раз случайный, не повторяя предыдущий. У каждого файла своя громкость — выровнять варианты без пересведения.</li>
+      <li><b>«Настройки»</b> на карточке: громкость события, разброс высоты (питч), кулдаун — не чаще раза в N секунд. Изменённые значения подсвечены; «Сбросить» — к тому, что сейчас в игре.</li>
+      <li><b>«▶ Как в игре»</b> — ровно как игра: режим, случайный вариант, громкость (общая × событие × файл), случайная высота. Жми несколько раз — услышишь разброс. ▶ у файла — файл как есть.</li>
+      <li>Файлы и настройки сразу пишутся в рабочую папку — закрыл и открыл страницу, всё на месте. Можно бросить на страницу целую папку <code>Clips</code> — разложится по ключам.</li>
+      <li>Готово → <b>«Собрать архив»</b> и отправь его разработчику. Можно отправить и саму папку — это то же самое.</li>
+    </ol>
+    <div class="hint">Технично: моно, UI-звуки короткие (до ~1 с), без тишины в начале, пик ~-1 dBFS. Стерео и файлы длиннее 5 с подсвечены.</div>
+  </details>
+  <div id="root"></div>
+</main>
+
+<div class="overlay" id="overlay">Отпусти — разложу по ключам (папка Clips или имя файла)<br>(manifest.json — загружу настройки)</div>
+<div class="toast" id="toast"></div>
+<div class="modal" id="modal" hidden>
+  <div class="box">
+    <h3>Сначала — рабочая папка</h3>
+    <p>Выбери папку, где лежит этот html. Звуки и настройки пишутся туда сразу и переживают закрытие страницы.</p>
+    <p class="hint" id="modalPending"></p>
+    <div class="row"><button class="ghost" id="modalCancel">Отмена</button><button class="primary" id="modalPick">Выбрать папку</button></div>
+  </div>
+</div>
+<input type="file" id="picker" multiple accept=".wav,.ogg,.mp3,.aif,.aiff,audio/*" hidden>
+
+<script>
+"use strict";
+// Каталог вшивает Unity при экспорте (Nexus → App → Звуки → Обмен).
+const CATALOG = /*@CATALOG@*/null;
+</script>
+<script>
+"use strict";
+if (!CATALOG || !Array.isArray(CATALOG.entries)) {
+  document.getElementById("root").innerHTML = '<div class="empty">Эта страница собирается из Unity: Nexus → App → Звуки → Обмен → «Экспорт для звуковика».</div>';
+  document.getElementById("folder").hidden = true;
+  throw new Error("нет каталога");
+}
+
+const PROJECT = CATALOG.project || "App";
+const NS = "appcore-sounds:" + PROJECT;
+const EXT_OK = /\.(wav|ogg|mp3|aif|aiff)$/i;
+const MODES_EVENT = [["Off", "Молчит"], ["Default", "Дефолт"], ["Custom", "Свои"]];
+const MODES_DEFAULT = [["Off", "Молчит"], ["Custom", "Свои"]];
+const pad2 = n => String(n).padStart(2, "0");
+const clamp = (v, a, b, fb) => (typeof v === "number" && isFinite(v)) ? Math.min(b, Math.max(a, v)) : fb;
+const r3 = v => Math.round(v * 1000) / 1000;
+const pct = v => Math.round(v * 100) + "%";
+const extOf = name => ((name.match(/\.[a-z0-9]+$/i) || [".wav"])[0]).toLowerCase();
+
+document.title = `${PROJECT} — приёмка звуков`;
+document.getElementById("title").textContent = `${PROJECT} · звуки`;
+
+// ---------------------------------------------------------------- каталог
+const SLOTS = new Map();          // key -> slot
+for (const e of CATALOG.entries) {
+  if (!e || !e.key) continue;
+  const levels = e.key.split(".");
+  SLOTS.set(e.key, {
+    key: e.key, levels, last: levels[levels.length - 1], top: levels[0],
+    title: e.title || "", when: e.when || "", isDefault: !!e.isDefault,
+    base: {
+      mode: e.mode || (e.isDefault ? "Custom" : "Default"),
+      def: e.defaultKey || "",
+      volume: clamp(e.volume, 0, 1, 1),
+      pitchMin: clamp(e.pitchMin, 0.5, 2, 0.95),
+      pitchMax: clamp(e.pitchMax, 0.5, 2, 1.05),
+      cooldown: clamp(e.cooldown, 0, 5, 0.05),
+    },
+  });
+}
+const DEFAULT_KEYS = [...SLOTS.values()].filter(s => s.isDefault).map(s => s.key);
+const labelOf = key => { const s = SLOTS.get(key); return s ? (s.title || s.key) : key; };
+const lastIndex = {};           // для «без повтора» по ключу-источнику
+
+// ---------------------------------------------------------------- состояние
+const files = new Map();        // id -> {id, key, name, source, blob, dur, volume}
+let notes = {};
+let settings = {};              // key -> {mode, def, volume, pitchMin, pitchMax, cooldown}
+let master = clamp(CATALOG.masterVolume, 0, 1, 1);
+const fileMeta = {};            // "Clips/…/X_01.wav" -> {volume, source} из manifest
+let filter = "all", query = "";
+
+const cfg = key => settings[key] || (settings[key] = {...SLOTS.get(key).base});
+const isChanged = key => JSON.stringify(cfg(key)) !== JSON.stringify(SLOTS.get(key).base) || slotFiles(key).some(f => f.volume !== 1 || f.fresh);
+const slotFiles = key => [...files.values()].filter(f => f.key === key).sort((a, b) => a.name.localeCompare(b.name));
+const dirParts = key => ["Clips", ...SLOTS.get(key).levels];
+
+// ---------------------------------------------------------------- IndexedDB / localStorage
+let db = null;
+function openDb() {
+  return new Promise(res => {
+    try {
+      const r = indexedDB.open(NS, 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore("files", {keyPath: "id"}); r.result.createObjectStore("meta"); };
+      r.onsuccess = () => { const d = r.result; d.onversionchange = () => d.close(); res(d); };
+      r.onerror = () => res(null);
+      r.onblocked = () => toast("Закрой другие вкладки с этой страницей и обнови её.", 10000);
+      setTimeout(() => res(null), 3000);
+    } catch { res(null); }
+  });
+}
+function dbDo(store, mode, fn) {
+  if (!db) return Promise.resolve(null);
+  return new Promise(res => {
+    try {
+      const tx = db.transaction(store, mode);
+      const req = fn(tx.objectStore(store));
+      tx.oncomplete = () => res(req ? req.result : null);
+      tx.onerror = tx.onabort = () => res(null);
+    } catch { res(null); }
+  });
+}
+const lsGet = (k, fb) => { try { const v = localStorage.getItem(NS + ":" + k); return v == null ? fb : JSON.parse(v); } catch { return fb; } };
+const lsSet = (k, v) => { try { localStorage.setItem(NS + ":" + k, JSON.stringify(v)); } catch {} };
+
+// ---------------------------------------------------------------- хранилище: рабочая папка (или браузер)
+const FS_OK = typeof window.showDirectoryPicker === "function";
+const store = {
+  mode: FS_OK ? "pending" : "browser",
+  root: null,
+
+  async dir(parts, create) {
+    let d = this.root;
+    for (const p of parts) d = await d.getDirectoryHandle(p, {create});
+    return d;
+  },
+
+  async add(key, file) {
+    const s = SLOTS.get(key), ext = extOf(file.name);
+    if (this.mode === "folder") {
+      const dir = await this.dir(dirParts(key), true);
+      let n = 0;
+      for await (const name of dir.keys()) {
+        const m = new RegExp(`^${s.last}_(\\d+)\\.`, "i").exec(name);
+        if (m) n = Math.max(n, +m[1]);
+      }
+      const name = `${s.last}_${pad2(n + 1)}${ext}`;
+      const h = await dir.getFileHandle(name, {create: true});
+      const w = await h.createWritable();
+      await w.write(file); await w.close();
+      return {id: "F:" + key + ":" + name, key, name, source: file.name, blob: await h.getFile()};
+    }
+    const used = slotFiles(key).map(f => +(/_(\d+)\./.exec(f.name) || [0, 0])[1]);
+    const name = `${s.last}_${pad2((used.length ? Math.max(...used) : 0) + 1)}${ext}`;
+    const rec = {id: "B:" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), key, name, source: file.name, blob: file, volume: 1};
+    await dbDo("files", "readwrite", st => st.put(rec));
+    return rec;
+  },
+
+  async remove(f) {
+    if (this.mode === "folder") {
+      try { await (await this.dir(dirParts(f.key), false)).removeEntry(f.name); } catch {}
+      return;
+    }
+    await dbDo("files", "readwrite", st => st.delete(f.id));
+  },
+
+  async putVolume(f) {
+    if (this.mode === "browser") await dbDo("files", "readwrite", st => st.put({id: f.id, key: f.key, name: f.name, source: f.source, blob: f.blob, volume: f.volume}));
+  },
+
+  async clear() {
+    if (this.mode === "folder") {
+      for (const n of ["Clips", "manifest.json"]) { try { await this.root.removeEntry(n, {recursive: true}); } catch {} }
+      return;
+    }
+    await dbDo("files", "readwrite", st => st.clear());
+  },
+
+  async load() {
+    if (this.mode !== "folder") return ((await dbDo("files", "readonly", st => st.getAll())) || []).filter(r => SLOTS.has(r.key));
+    const out = [];
+    let skipped = 0;
+    async function walk(dir, levels) {
+      for await (const [name, h] of dir.entries()) {
+        if (h.kind === "directory") { await walk(h, [...levels, name]); continue; }
+        if (!EXT_OK.test(name)) continue;
+        const key = levels.join(".");
+        if (!SLOTS.has(key)) { skipped++; continue; }
+        const path = ["Clips", ...levels, name].join("/");
+        const meta = fileMeta[path] || {};
+        out.push({id: "F:" + key + ":" + name, key, name, source: meta.source || name, volume: clamp(meta.volume, 0, 1, 1), blob: await h.getFile()});
+      }
+    }
+    try { await walk(await this.dir(["Clips"], false), []); } catch {}
+    if (skipped) toast(`В папке ${skipped} файл(ов) у ключей, которых нет в каталоге, — пропущены.`, 6000);
+    return out;
+  },
+
+  async readManifest() {
+    if (this.mode !== "folder") return null;
+    try { return JSON.parse(await (await (await this.root.getFileHandle("manifest.json")).getFile()).text()); }
+    catch { return null; }
+  },
+
+  async writeManifest(m) {
+    if (this.mode !== "folder") return;
+    const h = await this.root.getFileHandle("manifest.json", {create: true});
+    const w = await h.createWritable();
+    await w.write(JSON.stringify(m, null, 2)); await w.close();
+  },
+};
+
+async function connectFolder(root, quiet) {
+  store.root = root;
+  const browserFiles = (await dbDo("files", "readonly", st => st.getAll())) || [];
+  store.mode = "folder";
+  await dbDo("meta", "readwrite", st => st.put(root, "root"));
+
+  const m = await store.readManifest();
+  if (m) applyManifest(m, true);
+  await reloadFiles();
+
+  if (browserFiles.length) {
+    for (const r of browserFiles) if (SLOTS.has(r.key)) await addRecord(r.key, r.blob, r.source || r.name, r.volume);
+    await dbDo("files", "readwrite", st => st.clear());
+    await reloadFiles();
+  }
+  writeManifestSoon();
+  renderFolder();
+  if (!quiet) toast(`Рабочая папка: ${root.name}`);
+}
+async function pickFolder() {
+  try { await connectFolder(await window.showDirectoryPicker({id: NS.replace(/[^a-z0-9_-]/gi, "_").slice(0, 32), mode: "readwrite"})); }
+  catch (err) { if (err && err.name !== "AbortError") toast("Папка не выбрана: " + (err.message || err), 6000); }
+}
+async function resumeFolder() {
+  try {
+    if ((await store.root.requestPermission({mode: "readwrite"})) === "granted") await connectFolder(store.root, true);
+    else toast("Доступ к папке не дан.");
+  } catch (err) { toast("Не удалось открыть папку: " + (err.message || err), 6000); }
+}
+function renderFolder() {
+  document.getElementById("folderBtn").hidden = store.mode !== "pending";
+  const box = document.getElementById("folder");
+  box.textContent = ""; box.className = "folder";
+  const txt = el("div", "txt");
+  if (store.mode === "browser") {
+    txt.append("Браузер не умеет работать с папкой — файлы хранятся внутри браузера. Для папки открой страницу в Chrome, Edge или Яндекс.Браузере.");
+    box.append(txt); return;
+  }
+  if (store.mode === "folder") {
+    txt.append("Рабочая папка: "); txt.append(el("b", null, store.root.name));
+    txt.append(el("div", "hint", "Файлы и настройки пишутся туда сразу. Если клали файлы в Clips руками — «Обновить из папки»."));
+    const re = el("button", "ghost", "Обновить из папки");
+    re.onclick = async () => { const m = await store.readManifest(); if (m) applyManifest(m, true); await reloadFiles(); toast("Обновлено из папки."); };
+    const ch = el("button", "ghost", "Сменить папку"); ch.onclick = pickFolder;
+    box.append(txt, re, ch); return;
+  }
+  box.classList.add("need");
+  if (store.root) {
+    txt.append("Рабочая папка: "); txt.append(el("b", null, store.root.name));
+    txt.append(el("div", "hint", "Браузер просит подтвердить доступ после перезапуска."));
+    const go = el("button", "primary", "Продолжить"); go.onclick = resumeFolder;
+    const ch = el("button", "ghost", "Другая папка"); ch.onclick = pickFolder;
+    box.append(txt, go, ch);
+  } else {
+    txt.append("Выбери папку, где лежит этот html (с manifest.json и Clips) — звуки и настройки будут писаться туда.");
+    const go = el("button", "primary", "Выбрать папку"); go.onclick = pickFolder;
+    box.append(txt, go);
+  }
+}
+
+// без папки: окно выбора; брошенные файлы ждут и разложатся после выбора
+let pendingIntake = null;
+const modal = document.getElementById("modal");
+function needFolder(list, key) {
+  if (store.mode !== "pending") return false;
+  pendingIntake = list && list.length ? {list, key} : null;
+  document.getElementById("modalPending").textContent = pendingIntake ? `Брошенные файлы (${list.length}) добавятся сразу после выбора.` : "";
+  modal.hidden = false;
+  return true;
+}
+document.getElementById("modalCancel").onclick = () => { modal.hidden = true; pendingIntake = null; };
+document.getElementById("modalPick").onclick = async () => {
+  await pickFolder();
+  if (store.mode !== "folder") return;
+  modal.hidden = true;
+  const p = pendingIntake; pendingIntake = null;
+  if (p) intake(p.list, p.key);
+};
+document.getElementById("folderBtn").onclick = pickFolder;
+
+// ---------------------------------------------------------------- файлы
+async function reloadFiles() {
+  if (playing) stop();
+  files.clear();
+  for (const r of await store.load()) { const f = {volume: 1, ...r, dur: null}; files.set(f.id, f); probe(f); }
+  for (const key of SLOTS.keys()) renderSlot(key);
+  updateProgress();
+}
+async function addRecord(key, blob, source, volume) {
+  const rec = await store.add(key, new File([blob], source, {type: blob.type}));
+  const f = {volume: clamp(volume, 0, 1, 1), ...rec, dur: null, fresh: true};
+  f.volume = clamp(volume, 0, 1, 1);
+  files.set(f.id, f); probe(f);
+  if (store.mode === "browser" && f.volume !== 1) await store.putVolume(f);
+  return f;
+}
+let _decoder = null;
+const decoder = () => _decoder || (_decoder = new OfflineAudioContext(1, 1, 44100));
+function probe(f) {
+  const url = URL.createObjectURL(f.blob);
+  const a = new Audio();
+  a.preload = "metadata";
+  a.onloadedmetadata = () => { f.dur = isFinite(a.duration) ? a.duration : null; URL.revokeObjectURL(url); renderFiles(f.key); };
+  a.onerror = () => URL.revokeObjectURL(url);
+  a.src = url;
+  // каналы — по декодированию заголовка (дёшево для коротких файлов)
+  f.blob.arrayBuffer().then(buf => decoder().decodeAudioData(buf))
+    .then(ab => { f.channels = ab.numberOfChannels; renderFiles(f.key); }).catch(() => {});
+}
+async function addFiles(key, list) {
+  for (const file of list) {
+    try { await addRecord(key, file, file.name, 1); }
+    catch (err) { toast(`Не записался «${file.name}»: ${err.message || err}`, 7000); }
+  }
+  const c = cfg(key);
+  if (list.length && c.mode !== "Custom") c.mode = "Custom";
+  saveState(); renderSlot(key); updateProgress();
+}
+function afterEmptied(key) {
+  const c = cfg(key);
+  if (c.mode === "Custom" && !slotFiles(key).length && SLOTS.get(key).base.mode !== "Custom") c.mode = SLOTS.get(key).base.mode;
+  saveState();
+}
+async function removeFile(id) {
+  const f = files.get(id); if (!f) return;
+  if (playing && playing.id === id) stop();
+  await store.remove(f);
+  files.delete(id); afterEmptied(f.key); renderSlot(f.key); updateProgress();
+}
+async function clearSlot(key) {
+  if (playing && playing.key === key) stop();
+  for (const f of slotFiles(key)) { await store.remove(f); files.delete(f.id); }
+  afterEmptied(key); renderSlot(key); updateProgress();
+}
+
+// разбор брошенного: в карточку (key) или по пути Clips/… / имени файла
+async function intake(list, key) {
+  const json = list.find(f => /(^|\/)manifest\.json$/i.test(f.relPath || f.name));
+  const audio = [], bad = [];
+  for (const f of list) {
+    if (/\.json$/i.test(f.name) || f.name.startsWith(".")) continue;
+    (EXT_OK.test(f.name) ? audio : bad).push(f);
+  }
+  if (audio.length && needFolder(list, key)) return;
+
+  const lines = [];
+  if (key) {
+    if (audio.length) { await addFiles(key, audio); lines.push(`Добавлено в ${key}: ${audio.length}`); }
+  } else {
+    const byKey = new Map(), unknown = [];
+    for (const f of audio) {
+      const k = routeKey(f);
+      if (!k) { unknown.push(f.name); continue; }
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(f);
+    }
+    let n = 0;
+    for (const [k, l] of byKey) { await addFiles(k, l); n += l.length; }
+    if (n) lines.push(`Разложено: ${n} файл(ов) в ${byKey.size} карточ.`);
+    if (unknown.length) lines.push(`Не распознаны — перетащи на карточку: ${unknown.join(", ")}`);
+  }
+  if (bad.length) lines.push(`Не аудио (wav/ogg/mp3/aif): ${bad.map(f => f.name).join(", ")}`);
+  if (json) {
+    try { lines.push(`Настройки загружены: ${applyManifest(JSON.parse(await json.text()))} карточ.`); }
+    catch (err) { lines.push("Настройки не прочитаны: " + (err.message || err)); }
+  }
+  if (lines.length) toast(lines.join("\n"), lines.some(l => l.startsWith("Не ")) ? 9000 : 4000);
+}
+
+/** Ключ файла: по пути …/Clips/A/B/file → A.B; иначе по имени «Последний_NN» — если такой уровень один. */
+function routeKey(f) {
+  const parts = (f.relPath || "").split("/");
+  const i = parts.lastIndexOf("Clips");
+  if (i >= 0 && parts.length - i > 2) {
+    const k = parts.slice(i + 1, parts.length - 1).join(".");
+    if (SLOTS.has(k)) return k;
+  }
+  const m = /^([A-Za-z_][A-Za-z0-9_]*?)(?:[_\- ]\d+)?\.[a-z0-9]+$/i.exec(f.name);
+  if (!m) return null;
+  const last = m[1].toLowerCase();
+  const hits = [...SLOTS.values()].filter(s => s.last.toLowerCase() === last);
+  return hits.length === 1 ? hits[0].key : null;
+}
+
+async function collectDropped(dt) {
+  const items = dt && dt.items ? [...dt.items] : [];
+  const entries = items.filter(i => i.kind === "file").map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const plain = dt && dt.files ? [...dt.files] : [];
+  if (!entries.length) return plain;
+  const out = [];
+  async function walk(entry, path) {
+    if (entry.isFile) {
+      const file = await new Promise(r => entry.file(r, () => r(null)));
+      if (file) { file.relPath = path + file.name; out.push(file); }
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await new Promise(r => reader.readEntries(r, () => r([])));
+        for (const e of batch) await walk(e, path + entry.name + "/");
+      } while (batch.length);
+    }
+  }
+  for (const e of entries) await walk(e, "");
+  return out.length ? out : plain;
+}
+
+// ---------------------------------------------------------------- manifest
+function applyManifest(m, quiet) {
+  if (!m || typeof m !== "object") throw new Error("не JSON-объект");
+  let n = 0;
+  if (typeof m.masterVolume === "number" && m.masterVolume >= 0) { master = clamp(m.masterVolume, 0, 1, 1); syncMaster(); }
+  for (const e of m.entries || []) {
+    const s = SLOTS.get(e.key); if (!s) continue;
+    const c = cfg(e.key);
+    const modes = s.isDefault ? MODES_DEFAULT : MODES_EVENT;
+    if (modes.some(x => x[0] === e.mode)) c.mode = e.mode;
+    if (!s.isDefault && DEFAULT_KEYS.includes(e.defaultKey)) c.def = e.defaultKey;
+    c.volume = clamp(e.volume, 0, 1, c.volume);
+    const a = clamp(e.pitchMin, 0.5, 2, c.pitchMin), b = clamp(e.pitchMax, 0.5, 2, c.pitchMax);
+    c.pitchMin = Math.min(a, b); c.pitchMax = Math.max(a, b);
+    c.cooldown = clamp(e.cooldown, 0, 5, c.cooldown);
+    if (typeof e.note === "string") { if (e.note) notes[e.key] = e.note; else if (!quiet) delete notes[e.key]; }
+    for (const f of e.clips || []) if (f && f.file) fileMeta[f.file] = {volume: f.volume, source: f.source};
+    n++;
+  }
+  saveState();
+  for (const key of SLOTS.keys()) { const card = cardEls.get(key); if (card) card._note.value = notes[key] || ""; renderSlot(key); }
+  updateProgress();
+  return n;
+}
+
+/** manifest.json — общий формат с Unity (SoundExchange). zipNames — перенумерованные имена файлов архива. */
+function buildManifest(zipNames) {
+  const m = {format: "appcore-sounds", version: 1, project: PROJECT, created: new Date().toISOString(), masterVolume: r3(master), entries: []};
+  for (const s of SLOTS.values()) {
+    const c = cfg(s.key), dir = dirParts(s.key).join("/") + "/";
+    const clips = slotFiles(s.key).map((f, i) => ({
+      file: dir + (zipNames ? `${s.last}_${pad2(i + 1)}${extOf(f.name)}` : f.name),
+      volume: r3(f.volume), source: f.source || f.name,
+    }));
+    m.entries.push({
+      key: s.key, isDefault: s.isDefault, mode: c.mode, defaultKey: s.isDefault ? "" : c.def,
+      volume: r3(c.volume), pitchMin: r3(c.pitchMin), pitchMax: r3(c.pitchMax), cooldown: r3(c.cooldown),
+      note: notes[s.key] || "", clips,
+    });
+  }
+  return m;
+}
+let lsTimer = 0, mfTimer = 0;
+function saveState() {
+  clearTimeout(lsTimer);
+  lsTimer = setTimeout(() => { lsSet("notes", notes); lsSet("settings", settings); lsSet("master", master); }, 200);
+  writeManifestSoon();
+}
+function writeManifestSoon() {
+  if (store.mode !== "folder") return;
+  clearTimeout(mfTimer);
+  mfTimer = setTimeout(() => store.writeManifest(buildManifest(false)).catch(err => toast("manifest.json не записан: " + (err.message || err), 6000)), 400);
+}
+
+// ---------------------------------------------------------------- прослушивание
+const player = new Audio();
+let playing = null, playUrl = null;
+function startAudio(f, volume, rate) {
+  stop();
+  playUrl = URL.createObjectURL(f.blob);
+  player.src = playUrl;
+  player.volume = Math.min(1, Math.max(0, volume));
+  player.preservesPitch = false; player.mozPreservesPitch = false; player.webkitPreservesPitch = false;
+  player.playbackRate = rate;
+  playing = {id: f.id, key: f.key};
+  player.play().catch(() => {});
+  renderFiles(f.key);
+}
+function stop() {
+  const was = playing;
+  player.pause(); playing = null;
+  if (playUrl) { URL.revokeObjectURL(playUrl); playUrl = null; }
+  if (was) renderFiles(was.key);
+}
+player.onended = stop;
+function playRaw(f) {
+  if (playing && playing.id === f.id) { stop(); return; }
+  startAudio(f, 1, 1);
+}
+function playAsGame(key) {
+  const s = SLOTS.get(key), c = cfg(key);
+  if (c.mode === "Off") { toast("Режим «Молчит»."); return; }
+  let source = key, volume = c.volume;
+  if (!s.isDefault && c.mode === "Default") {
+    source = c.def;
+    const d = SLOTS.get(source);
+    if (!d) { toast("Дефолт не выбран — в игре тишина."); return; }
+    if (cfg(source).mode === "Off") { toast(`Дефолт «${labelOf(source)}» выключен — в игре тишина.`); return; }
+    volume *= cfg(source).volume;
+  }
+  const list = slotFiles(source);
+  if (!list.length) { toast(source === key ? "Нет файлов." : `Дефолт «${labelOf(source)}» пока без файлов — в игре тишина.`); return; }
+  let i = Math.floor(Math.random() * list.length);
+  if (list.length > 1 && i === lastIndex[source]) i = (i + 1 + Math.floor(Math.random() * (list.length - 1))) % list.length;
+  lastIndex[source] = i;
+  const sc = cfg(source), f = list[i];
+  startAudio(f, master * volume * f.volume, sc.pitchMin + Math.random() * (sc.pitchMax - sc.pitchMin));
+}
+
+// ---------------------------------------------------------------- отрисовка
+const root = document.getElementById("root");
+const cardEls = new Map();
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+const fmtDur = d => d == null ? "—" : d < 10 ? d.toFixed(2) + " с" : d.toFixed(1) + " с";
+const fmtSize = b => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + " КБ" : (b / 1048576).toFixed(1) + " МБ";
+
+function buildAll() {
+  root.textContent = "";
+  const sections = new Map();
+  for (const s of SLOTS.values()) {
+    const sec = s.isDefault ? "∙ Дефолтные звуки" : s.top;
+    if (!sections.has(sec)) sections.set(sec, []);
+    sections.get(sec).push(s);
+  }
+  const names = [...sections.keys()].sort((a, b) => (a.startsWith("∙") - b.startsWith("∙")) || a.localeCompare(b));
+  for (const name of names) {
+    const g = el("section", "group");
+    const h = el("h2", null, name.replace("∙ ", "")); h.append(el("span", "c")); g.append(h);
+    const grid = el("div", "grid"); g.append(grid);
+    for (const s of sections.get(name).sort((a, b) => a.key.localeCompare(b.key))) {
+      const card = makeCard(s); grid.append(card); cardEls.set(s.key, card);
+    }
+    root.append(g);
+  }
+  const empty = el("div", "empty", "Ничего не найдено"); empty.id = "nothing"; empty.hidden = true; root.append(empty);
+}
+
+function knob(grid, label, min, max, step, get, set, fmt, onChange) {
+  const l = el("span", "lbl", label), r = el("input"), v = el("span", "val");
+  r.type = "range"; r.min = min; r.max = max; r.step = step;
+  r.oninput = () => { set(parseFloat(r.value)); v.textContent = fmt(get()); onChange(); };
+  grid.append(l, r, v);
+  return () => { r.value = get(); v.textContent = fmt(get()); };
+}
+
+function makeCard(s) {
+  const card = el("div", "card"); card.dataset.key = s.key;
+  const c = () => cfg(s.key);
+  const changed = () => { saveState(); renderSlot(s.key); if (s.isDefault) for (const o of SLOTS.values()) if (cfg(o.key).def === s.key) renderSlot(o.key); if (filter === "changed") applyFilter(); };
+
+  const top = el("div", "top"), names = el("div", "names"), badge = el("span", "badge", "0");
+  names.append(el("div", "key", s.key), el("div", null, s.title || s.last), el("div", "when", s.when));
+  top.append(names, badge);
+  card.append(top);
+
+  const row = el("div", "moderow"), seg = el("div", "seg");
+  for (const [m, ru] of (s.isDefault ? MODES_DEFAULT : MODES_EVENT)) {
+    const b = el("button", null, ru); b.dataset.m = m;
+    b.onclick = () => { c().mode = m; changed(); };
+    seg.append(b);
+  }
+  row.append(seg);
+  let sel = null;
+  if (!s.isDefault) {
+    sel = el("select");
+    for (const k of DEFAULT_KEYS) { const o = el("option", null, labelOf(k)); o.value = k; sel.append(o); }
+    sel.onchange = () => { c().def = sel.value; changed(); };
+    row.append(sel);
+  }
+  row.append(el("span", "sp"));
+  const pg = el("button", "play", "▶ Как в игре"); pg.onclick = () => playAsGame(s.key);
+  row.append(pg);
+  card.append(row);
+
+  const warn = el("div", "warnline"); card.append(warn);
+  const list = el("div", "files"); card.append(list);
+
+  const tune = el("details", "tune");
+  const sum = el("summary"); sum.append("Настройки "); const sv = el("span", "v"); sum.append(sv); tune.append(sum);
+  const grid = el("div", "knobs"); tune.append(grid);
+  const sync = [];
+  const syncAll = () => sync.forEach(f => f());
+  sync.push(knob(grid, "Громкость", 0, 1, 0.01, () => c().volume, v => c().volume = v, pct, changed));
+  sync.push(knob(grid, "Питч мин", 0.5, 2, 0.01, () => c().pitchMin, v => { c().pitchMin = v; if (c().pitchMax < v) c().pitchMax = v; }, v => v.toFixed(2), () => { syncAll(); changed(); }));
+  sync.push(knob(grid, "Питч макс", 0.5, 2, 0.01, () => c().pitchMax, v => { c().pitchMax = v; if (c().pitchMin > v) c().pitchMin = v; }, v => v.toFixed(2), () => { syncAll(); changed(); }));
+  if (!s.isDefault) {
+    const lc = el("span", "lbl", "Кулдаун, с"), nc = el("input");
+    nc.type = "number"; nc.min = 0; nc.max = 5; nc.step = 0.01;
+    nc.onchange = () => { c().cooldown = clamp(parseFloat(nc.value), 0, 5, c().cooldown); nc.value = c().cooldown; changed(); };
+    grid.append(lc, nc);
+    sync.push(() => { nc.value = c().cooldown; });
+  }
+  const reset = el("button", "ghost", "Сбросить — как сейчас в игре"); reset.style.gridColumn = "1/-1"; reset.style.marginTop = "4px";
+  reset.onclick = () => { const keep = c().mode; settings[s.key] = {...s.base}; if (keep === "Custom" && slotFiles(s.key).length) settings[s.key].mode = "Custom"; syncAll(); changed(); };
+  grid.append(reset);
+  card.append(tune);
+
+  const actions = el("div", "actions");
+  const add = el("button", null, "+ Файлы"); add.onclick = () => pick(s.key);
+  const clr = el("button", "ghost danger", "Опустошить"); clr.onclick = () => clearSlot(s.key);
+  actions.append(add, el("span", "sp"), clr);
+  card.append(actions);
+
+  const note = el("input", "note"); note.type = "text"; note.placeholder = "Комментарий (необязательно)";
+  note.value = notes[s.key] || "";
+  note.oninput = () => { if (note.value.trim()) notes[s.key] = note.value; else delete notes[s.key]; saveState(); };
+  card.append(note);
+
+  Object.assign(card, {_badge: badge, _list: list, _clr: clr, _seg: seg, _sel: sel, _warn: warn, _sum: sv, _sync: syncAll, _note: note});
+  return card;
+}
+
+function renderFiles(key) {
+  const card = cardEls.get(key); if (!card) return;
+  card._list.textContent = "";
+  for (const f of slotFiles(key)) {
+    const row = el("div", "file"), on = playing && playing.id === f.id;
+    const p = el("button", "play" + (on ? " on" : ""), on ? "■" : "▶"); p.title = "Прослушать файл как есть"; p.onclick = () => playRaw(f);
+    const n = el("span", "n", f.name); n.title = f.source && f.source !== f.name ? `${f.name} ← ${f.source}` : f.name;
+    const long = (f.dur != null && f.dur > 5) || f.channels > 1;
+    const meta = `${fmtDur(f.dur)}${f.channels > 1 ? " · стерео" : ""} · ${fmtSize(f.blob.size)}`;
+    const m = el("span", "m" + (long ? " long" : ""), meta);
+    const v = el("input"); v.type = "range"; v.min = 0; v.max = 1; v.step = 0.01; v.value = f.volume; v.className = "fvol"; v.title = "Громкость файла";
+    const vl = el("span", "m", pct(f.volume));
+    v.oninput = () => { f.volume = parseFloat(v.value); vl.textContent = pct(f.volume); store.putVolume(f); saveState(); };
+    const x = el("button", "ghost danger", "✕"); x.title = "Убрать"; x.onclick = () => removeFile(f.id);
+    row.append(p, n, m, v, vl, x); card._list.append(row);
+  }
+}
+
+function renderSlot(key) {
+  const card = cardEls.get(key); if (!card) return;
+  const s = SLOTS.get(key), c = cfg(key), n = slotFiles(key).length;
+  card.classList.toggle("filled", n > 0);
+  card._badge.textContent = n ? "✓ " + n : "0";
+  card._clr.disabled = !n;
+  for (const b of card._seg.children) b.classList.toggle("on", b.dataset.m === c.mode);
+  card.classList.toggle("off", c.mode === "Off");
+  card.classList.toggle("def", c.mode === "Default");
+
+  let warn = "", bad = false, info = false;
+  if (c.mode === "Custom" && !n) {
+    if (s.isDefault) { warn = "Пока без файлов — события с этим дефолтом молчат."; info = true; }
+    else { warn = "Режим «Свои», но файлов нет — в игре тишина."; bad = true; }
+  } else if (c.mode !== "Custom" && n) warn = "Файлы есть, но режим не «Свои» — в игре они не прозвучат.";
+  if (!s.isDefault) {
+    card._sel.value = c.def; card._sel.hidden = c.mode !== "Default";
+    if (!warn && c.mode === "Default") {
+      if (!SLOTS.has(c.def)) { warn = "Дефолт не выбран — в игре тишина."; bad = true; }
+      else if (cfg(c.def).mode === "Off") { warn = `Дефолт «${labelOf(c.def)}» выключен — в игре тишина.`; info = true; }
+      else if (!slotFiles(c.def).length) { warn = `Дефолт «${labelOf(c.def)}» пока без файлов.`; info = true; }
+    }
+  }
+  card._warn.textContent = warn; card._warn.hidden = !warn;
+  card._warn.classList.toggle("bad", bad); card._warn.classList.toggle("info", info);
+
+  const parts = ["громк. " + pct(c.volume), "питч " + c.pitchMin.toFixed(2) + "–" + c.pitchMax.toFixed(2)];
+  if (!s.isDefault) parts.push("кулдаун " + c.cooldown + " с");
+  card._sum.textContent = "· " + parts.join(" · ");
+  card._sum.classList.toggle("changed", isChanged(key));
+  card._sync();
+  renderFiles(key);
+  applyFilterTo(card);
+}
+
+function matches(s) {
+  if (!query) return true;
+  return (s.key + " " + s.title + " " + s.when).toLowerCase().includes(query.toLowerCase());
+}
+function applyFilterTo(card) {
+  const s = SLOTS.get(card.dataset.key), n = slotFiles(s.key).length;
+  const ok = filter === "all" || (filter === "empty" && n === 0) || (filter === "filled" && n > 0) || (filter === "changed" && isChanged(s.key));
+  card.hidden = !(matches(s) && ok);
+}
+function applyFilter() {
+  for (const card of cardEls.values()) applyFilterTo(card);
+  let any = false;
+  for (const g of root.querySelectorAll(".group")) {
+    const vis = [...g.querySelectorAll(".card")].some(c => !c.hidden);
+    g.hidden = !vis; any = any || vis;
+  }
+  document.getElementById("nothing").hidden = any;
+}
+function updateProgress() {
+  const events = [...SLOTS.values()].filter(s => !s.isDefault).length;
+  const filledEv = new Set(), filledDef = new Set();
+  for (const f of files.values()) (SLOTS.get(f.key).isDefault ? filledDef : filledEv).add(f.key);
+  document.getElementById("progressText").textContent =
+    `События: ${filledEv.size} / ${events} · дефолты: ${filledDef.size} / ${DEFAULT_KEYS.length} · файлов: ${files.size}`;
+  document.getElementById("progressFill").style.width = (events ? 100 * filledEv.size / events : 0) + "%";
+  for (const g of root.querySelectorAll(".group")) {
+    const cards = [...g.querySelectorAll(".card")];
+    g.querySelector("h2 .c").textContent = `${cards.filter(c => c.classList.contains("filled")).length} / ${cards.length}`;
+  }
+  applyFilter();
+}
+
+// ---------------------------------------------------------------- ввод
+const picker = document.getElementById("picker");
+let pickKey = null;
+function pick(key) { if (needFolder(null, key)) return; pickKey = key; picker.value = ""; picker.click(); }
+picker.onchange = () => { const list = [...picker.files]; if (pickKey) intake(list, pickKey); pickKey = null; };
+
+const overlay = document.getElementById("overlay");
+let dragCard = null, dragDepth = 0;
+const hasFiles = e => !!e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files");
+const cardAt = e => e.target && e.target.closest ? e.target.closest(".card") : null;
+function setDragCard(card) {
+  if (dragCard === card) return;
+  if (dragCard) dragCard.classList.remove("drag");
+  dragCard = card;
+  if (card) card.classList.add("drag");
+  overlay.classList.toggle("on", !card && dragDepth > 0);
+}
+window.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; setDragCard(cardAt(e)); overlay.classList.toggle("on", !dragCard); });
+window.addEventListener("dragover", e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragCard(cardAt(e)); });
+window.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; setDragCard(null); overlay.classList.remove("on"); } });
+window.addEventListener("drop", e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  const card = cardAt(e);
+  const pending = collectDropped(e.dataTransfer); // синхронно, пока dataTransfer жив
+  dragDepth = 0; setDragCard(null); overlay.classList.remove("on");
+  pending.then(list => intake(list, card ? card.dataset.key : null));
+});
+
+document.getElementById("search").oninput = e => { query = e.target.value.trim(); applyFilter(); };
+document.getElementById("filter").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  filter = b.dataset.f;
+  for (const x of e.currentTarget.children) x.classList.toggle("on", x === b);
+  applyFilter();
+};
+const masterEl = document.getElementById("master"), masterVal = document.getElementById("masterVal");
+function syncMaster() { masterEl.value = master; masterVal.textContent = pct(master); }
+masterEl.oninput = () => { master = parseFloat(masterEl.value); masterVal.textContent = pct(master); saveState(); };
+
+document.getElementById("clearAll").onclick = async () => {
+  const where = store.mode === "folder" ? `\n\nФайлы в папке ${store.root.name}/Clips будут удалены (в том числе пришедшие от разработчика).` : "";
+  if (!confirm("Убрать все файлы, комментарии и вернуть настройки как в игре?" + where)) return;
+  stop(); await store.clear();
+  files.clear(); notes = {}; settings = {}; master = clamp(CATALOG.masterVolume, 0, 1, 1); saveState(); syncMaster();
+  for (const c of cardEls.values()) c._note.value = "";
+  for (const key of SLOTS.keys()) renderSlot(key);
+  updateProgress();
+};
+const help = document.getElementById("help");
+help.ontoggle = () => lsSet("help", help.open);
+
+let toastTimer = 0;
+function toast(text, ms = 3500) {
+  const t = document.getElementById("toast");
+  t.textContent = text; t.classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), ms);
+}
+
+// ---------------------------------------------------------------- zip (без сжатия: аудио и так сжато)
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(entries) {
+  const enc = new TextEncoder(), parts = [], central = [], d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.path), data = e.data, crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+    lh.setUint16(10, time, true); lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true);
+    lh.setUint16(26, name.length, true);
+    parts.push(lh, name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(12, time, true); ch.setUint16(14, date, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+    ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+    central.push(ch, name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((s, p) => s + p.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], {type: "application/zip"});
+}
+
+document.getElementById("build").onclick = async () => {
+  const btn = document.getElementById("build");
+  btn.disabled = true; btn.textContent = "Собираю…";
+  try {
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}`;
+    const base = `${PROJECT}Sounds/`, entries = [], issues = [];
+    for (const s of SLOTS.values()) {
+      const list = slotFiles(s.key), dir = dirParts(s.key).join("/") + "/";
+      if (!s.isDefault && cfg(s.key).mode === "Custom" && !list.length) issues.push(s.key);
+      for (let i = 0; i < list.length; i++)
+        entries.push({path: `${base}${dir}${s.last}_${pad2(i + 1)}${extOf(list[i].name)}`, data: new Uint8Array(await list[i].blob.arrayBuffer())});
+    }
+    entries.push({path: base + "manifest.json", data: new TextEncoder().encode(JSON.stringify(buildManifest(true), null, 2))});
+    const blob = makeZip(entries);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `${PROJECT}Sounds_${stamp}.zip`;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    toast(`Архив готов: ${files.size} файл(ов), ${fmtSize(blob.size)}. Отправь его разработчику.` +
+      (issues.length ? `\nВнимание: режим «Свои» без файлов — ${issues.join(", ")}.` : ""), issues.length ? 9000 : 6000);
+  } catch (err) {
+    const stale = err && err.name === "NotReadableError";
+    toast(stale ? "Файлы в папке менялись снаружи — нажми «Обновить из папки» и собери снова." : "Не удалось собрать архив: " + (err && err.message || err), 8000);
+  } finally {
+    btn.textContent = "Собрать архив"; btn.disabled = false;
+  }
+};
+
+// ---------------------------------------------------------------- старт
+(async function init() {
+  notes = lsGet("notes", {}) || {};
+  const saved = lsGet("settings", {}) || {};
+  for (const [key, v] of Object.entries(saved)) {
+    const s = SLOTS.get(key); if (!s || !v) continue;
+    const merged = {...s.base, ...v};
+    if (s.isDefault && !MODES_DEFAULT.some(x => x[0] === merged.mode)) merged.mode = "Custom";
+    settings[key] = merged;
+  }
+  master = clamp(lsGet("master", master), 0, 1, master);
+  help.open = lsGet("help", true) !== false;
+  syncMaster();
+  buildAll();
+  renderFolder();
+  for (const key of SLOTS.keys()) renderSlot(key);
+  updateProgress();
+  db = await openDb();
+
+  if (FS_OK) {
+    const rootHandle = await dbDo("meta", "readonly", st => st.get("root"));
+    if (rootHandle) {
+      store.root = rootHandle;
+      let perm = "prompt";
+      try { perm = await rootHandle.queryPermission({mode: "readwrite"}); } catch {}
+      if (perm === "granted") { try { await connectFolder(rootHandle, true); return; } catch {} }
+    }
+  }
+  renderFolder();
+  await reloadFiles();
+})();
+</script>
+</body>
+</html>

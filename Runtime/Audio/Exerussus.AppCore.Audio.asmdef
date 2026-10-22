@@ -1,0 +1,16 @@
+{
+    "name": "Exerussus.AppCore.Audio",
+    "rootNamespace": "Exerussus.AppCore.Audio",
+    "references": [
+        "Exerussus.AppCore"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
