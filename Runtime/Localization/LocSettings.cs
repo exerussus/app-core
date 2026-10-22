@@ -71,6 +71,10 @@ namespace Exerussus.AppCore.Localization
         [Tooltip("Включить локализацию. Выключено — ключи '^' не резолвятся, вёрстка не обходится, патчи не принимаются.")]
         [SerializeField] private bool enabled;
 
+        [Tooltip("Выключать локализацию в batch mode (выделенный сервер, CI): таблицы не грузятся, ключи остаются ключами. " +
+                 "Из кода то же на один запуск — Loc.OverrideEnabled(false).")]
+        [SerializeField] private bool disableInBatchMode;
+
         [Header("Таблица")]
         [Tooltip("Базовая таблица проекта (.loc). Обычно Assets/App/Localization/base.loc.")]
         [SerializeField] private TextAsset baseTable;
@@ -114,6 +118,10 @@ namespace Exerussus.AppCore.Localization
         [Tooltip("Предупреждать в лог о ключе, которого нет в таблице (раз на ключ).")]
         [SerializeField] private bool warnMissing = true;
 
+        [Tooltip("Предупреждать о именованном токене без аргумента ({count} в Format без count). Обычно выключено: " +
+                 "такие токены дорабатывают проходы и процессор проекта.")]
+        [SerializeField] private bool warnUnknownTokens;
+
         [Header("Редактор")]
         [Tooltip("Генерировать константы ключей (L.MENU_PLAY) в Assets/App/Generated/LocKeys.cs.")]
         [SerializeField] private bool generateKeys = true;
@@ -139,6 +147,8 @@ namespace Exerussus.AppCore.Localization
         public LocTraceMode Trace => trace;
         public bool HotReload => hotReload;
         public bool WarnMissing => warnMissing;
+        public bool WarnUnknownTokens => warnUnknownTokens;
+        public bool DisableInBatchMode => disableInBatchMode;
         public bool GenerateKeys => generateKeys;
         public string KeysNamespace => string.IsNullOrEmpty(keysNamespace) ? "App.Localization" : keysNamespace;
         public LocBuildCheck BuildCheck => buildCheck;

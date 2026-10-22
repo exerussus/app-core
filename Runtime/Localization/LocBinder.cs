@@ -54,6 +54,7 @@ namespace Exerussus.AppCore.Localization
         private string _decorateOut;
 
         private object[] _args;
+        private (string name, object value)[] _named;
         private bool _plural;
         private double _count;
 
@@ -73,6 +74,9 @@ namespace Exerussus.AppCore.Localization
         /// <summary>Исходная строка (ключ или текст с токенами) — источник каждой сборки.</summary>
         public string Template { get; }
 
+        /// <summary>Ключ без <c>^</c>; <c>null</c> — шаблон не ключ.</summary>
+        internal string Key { get; }
+
         /// <summary>Идёт разбор (<see cref="ILocTextProcessor.Prepare"/>): подписки можно ставить.</summary>
         public bool IsTracking { get; private set; }
 
@@ -84,6 +88,7 @@ namespace Exerussus.AppCore.Localization
             _owner = owner;
             Element = element;
             Template = template;
+            Key = Loc.IsKey(template) ? template.Substring(1) : null;
         }
 
         /// <summary>Подписка процессора. Снимается на смене языка, при сне и при отвязке элемента.</summary>
@@ -114,19 +119,40 @@ namespace Exerussus.AppCore.Localization
 
         // ---------- настройка ----------
 
-        internal bool SameAs(Func<string, string> decorate, object[] args, bool plural, double count) =>
-            Equals(_decorate, decorate) && _plural == plural && (!plural || _count.Equals(count)) && SameArgs(_args, args);
+        internal bool SameAs(Func<string, string> decorate, object[] args, (string name, object value)[] named, bool plural, double count) =>
+            Equals(_decorate, decorate) && SameExceptDecorate(args, named, plural, count);
 
         /// <summary>Те же шаблон и аргументы, другое оформление: подписки не трогаем.</summary>
-        internal bool SameExceptDecorate(object[] args, bool plural, double count) =>
-            _plural == plural && (!plural || _count.Equals(count)) && SameArgs(_args, args);
+        internal bool SameExceptDecorate(object[] args, (string name, object value)[] named, bool plural, double count) =>
+            _plural == plural && (!plural || _count.Equals(count)) && SameArgs(_args, args) && SameNamed(_named, named);
 
-        internal void Configure(Func<string, string> decorate, object[] args, bool plural, double count)
+        /// <summary>
+        /// Один именованный аргумент того же значения — без упаковки: повторный <c>Set</c> с тем же числом
+        /// каждый кадр ничего не стоит.
+        /// </summary>
+        internal bool SameSingle<T0>(Func<string, string> decorate, (string name, T0 value) a0, bool plural, double count) =>
+            _decorate == null && decorate == null && _args == null && _plural == plural && (!plural || _count.Equals(count)) &&
+            _named != null && _named.Length == 1 && Same(_named[0], a0);
+
+        internal bool SameDouble<T0, T1>((string name, T0 value) a0, (string name, T1 value) a1) =>
+            _decorate == null && _args == null && !_plural && _named != null && _named.Length == 2 &&
+            Same(_named[0], a0) && Same(_named[1], a1);
+
+        internal bool SameTriple<T0, T1, T2>((string name, T0 value) a0, (string name, T1 value) a1, (string name, T2 value) a2) =>
+            _decorate == null && _args == null && !_plural && _named != null && _named.Length == 3 &&
+            Same(_named[0], a0) && Same(_named[1], a1) && Same(_named[2], a2);
+
+        private static bool Same<T>((string name, object value) stored, (string name, T value) given) =>
+            string.Equals(stored.name, given.name, StringComparison.Ordinal) &&
+            stored.value is T previous && EqualityComparer<T>.Default.Equals(previous, given.value);
+
+        internal void Configure(Func<string, string> decorate, object[] args, (string name, object value)[] named, bool plural, double count)
         {
             _decorate = decorate;
             _decorateIn = null;
             _decorateOut = null;
             _args = args != null && args.Length > 0 ? args : null;
+            _named = named != null && named.Length > 0 ? named : null;
             _plural = plural;
             _count = count;
         }
@@ -136,6 +162,16 @@ namespace Exerussus.AppCore.Localization
             _decorate = decorate;
             _decorateIn = null;
             _decorateOut = null;
+        }
+
+        private static bool SameNamed((string name, object value)[] a, (string name, object value)[] b)
+        {
+            var la = a?.Length ?? 0;
+            var lb = b?.Length ?? 0;
+            if (la != lb) return false;
+            for (var i = 0; i < la; i++)
+                if (!string.Equals(a[i].name, b[i].name, StringComparison.Ordinal) || !Equals(a[i].value, b[i].value)) return false;
+            return true;
         }
 
         private static bool SameArgs(object[] a, object[] b)
@@ -182,18 +218,8 @@ namespace Exerussus.AppCore.Localization
             Write();
         }
 
-        private string Resolve()
-        {
-            string pattern;
-            if (_plural)
-            {
-                pattern = Loc.PluralPattern(Template, _count);
-                return Loc.FormatPattern(Template, pattern, _count, _args);
-            }
-
-            pattern = Loc.Get(Template);
-            return _args == null ? pattern : Loc.FormatPattern(Template, pattern, _args);
-        }
+        // Перевод → проходы Pattern → аргументы → проходы Text (с владельцем биндера).
+        private string Resolve() => Loc.ComposeBinding(Template, _args, _named, _plural, _count, _owner.Context);
 
         private void Write()
         {
@@ -366,6 +392,7 @@ namespace Exerussus.AppCore.Localization
             if (_subscribed || _disposed) return;
             _subscribed = true;
             Loc.Changed += OnChanged;
+            Loc.KeysRefreshed += OnKeysRefreshed;
         }
 
         // ---------- разметка ----------
@@ -403,7 +430,7 @@ namespace Exerussus.AppCore.Localization
             if (element is TextElement text)
             {
                 if (_bindings.TryGetValue(text, out var bound)) bound.Refresh();
-                else if (NeedsBinding(text.text, enabled)) Bind(text, text.text, null, null, false, 0);
+                else if (NeedsBinding(text.text, enabled)) Bind(text, text.text, null, null, null, false, 0);
             }
 
             var children = element.hierarchy;
@@ -414,25 +441,74 @@ namespace Exerussus.AppCore.Localization
         /// Ставит текст элементу, созданному в коде. Запоминается шаблон, а не результат, поэтому
         /// строка переживает смену языка. Повторный вызов с тем же шаблоном ничего не стоит.
         /// </summary>
-        public void Set(TextElement element, string template) => SetCore(element, template, null, null, false, 0);
+        public void Set(TextElement element, string template) => SetCore(element, template, null, null, null, false, 0);
 
         /// <summary>
         /// Ставит текст с пост-обработкой. <paramref name="decorate"/> хранится с шаблоном и
         /// прогоняется на сборке (с кэшем по входу) — иначе смена языка стёрла бы оформление.
         /// </summary>
         public void Set(TextElement element, string template, Func<string, string> decorate) =>
-            SetCore(element, template, decorate, null, false, 0);
+            SetCore(element, template, decorate, null, null, false, 0);
 
         /// <summary>
         /// Ставит текст с аргументами: <c>Set(label, L.MSG_SEND_PROGRESS, recorded, total)</c>.
         /// Аргументы подставляются до живых значений — фигурные скобки в значениях игры не мешают.
         /// </summary>
         public void Set(TextElement element, string template, params object[] args) =>
-            SetCore(element, template, null, args, false, 0);
+            SetCore(element, template, null, args, null, false, 0);
+
+        /// <summary>
+        /// Ставит текст с именованным аргументом: <c>Set(label, "^POINTS_LEFT", ("count", left))</c>.
+        /// Тот же шаблон и то же значение — ничего не стоит (без упаковки), можно звать каждый кадр.
+        /// </summary>
+        public void Set<T0>(TextElement element, string template, (string name, T0 value) a0)
+        {
+            if (Unchanged(element, template, out var existing) && existing.SameSingle(null, a0, false, 0)) return;
+            SetCore(element, template, null, null, new (string, object)[] { (a0.name, a0.value) }, false, 0);
+        }
+
+        public void Set<T0, T1>(TextElement element, string template, (string name, T0 value) a0, (string name, T1 value) a1)
+        {
+            if (Unchanged(element, template, out var existing) && existing.SameDouble(a0, a1)) return;
+            SetCore(element, template, null, null, new (string, object)[] { (a0.name, a0.value), (a1.name, a1.value) }, false, 0);
+        }
+
+        public void Set<T0, T1, T2>(TextElement element, string template, (string name, T0 value) a0, (string name, T1 value) a1, (string name, T2 value) a2)
+        {
+            if (Unchanged(element, template, out var existing) && existing.SameTriple(a0, a1, a2)) return;
+            SetCore(element, template, null, null,
+                    new (string, object)[] { (a0.name, a0.value), (a1.name, a1.value), (a2.name, a2.value) }, false, 0);
+        }
+
+        /// <summary>Ставит текст с именованными аргументами (четыре и больше).</summary>
+        public void Set(TextElement element, string template, params (string name, object value)[] named) =>
+            SetCore(element, template, null, null, named, false, 0);
+
+        /// <summary>Ставит текст с окончанием по числу: число — <c>{0}</c>.</summary>
+        public void SetPlural(TextElement element, string template, double count) =>
+            SetCore(element, template, null, null, null, true, count);
 
         /// <summary>Ставит текст с окончанием по числу (см. <see cref="Loc.Plural(string,double,object[])"/>).</summary>
         public void SetPlural(TextElement element, string template, double count, params object[] args) =>
-            SetCore(element, template, null, args, true, count);
+            SetCore(element, template, null, args, null, true, count);
+
+        /// <summary>Окончание по числу (<c>{0}</c>) и именованные аргументы.</summary>
+        public void SetPlural(TextElement element, string template, double count, params (string name, object value)[] named) =>
+            SetCore(element, template, null, null, named, true, count);
+
+        /// <summary>Окончание по числу и один именованный аргумент — без упаковки при том же значении.</summary>
+        public void SetPlural<T0>(TextElement element, string template, double count, (string name, T0 value) a0)
+        {
+            if (Unchanged(element, template, out var existing) && existing.SameSingle(null, a0, true, count)) return;
+            SetCore(element, template, null, null, new (string, object)[] { (a0.name, a0.value) }, true, count);
+        }
+
+        private bool Unchanged(TextElement element, string template, out LocBinding existing)
+        {
+            existing = null;
+            return element != null && !_disposed && _bindings.TryGetValue(element, out existing) && !existing.Released &&
+                   existing.Template == template;
+        }
 
         /// <summary>Ставит строку как есть и снимает привязку: ключ в ней не переводится.</summary>
         public void SetRaw(TextElement element, string text)
@@ -442,22 +518,23 @@ namespace Exerussus.AppCore.Localization
             element.text = text;
         }
 
-        private void SetCore(TextElement element, string template, Func<string, string> decorate, object[] args, bool plural, double count)
+        private void SetCore(TextElement element, string template, Func<string, string> decorate, object[] args,
+                             (string name, object value)[] named, bool plural, double count)
         {
             if (element == null) return;
 
             if (!_disposed && _bindings.TryGetValue(element, out var existing) && !existing.Released && existing.Template == template)
             {
-                if (existing.SameAs(decorate, args, plural, count)) return;
+                if (existing.SameAs(decorate, args, named, plural, count)) return;
 
-                if (existing.SameExceptDecorate(args, plural, count))
+                if (existing.SameExceptDecorate(args, named, plural, count))
                 {
                     existing.SetDecorate(decorate);
                     existing.Rebuild();
                     return;
                 }
 
-                existing.Configure(decorate, args, plural, count);
+                existing.Configure(decorate, args, named, plural, count);
                 existing.Refresh();
                 return;
             }
@@ -468,15 +545,13 @@ namespace Exerussus.AppCore.Localization
             if (_disposed || !NeedsBinding(template, enabled))
             {
                 // Держать нечего: ни ключа, ни того, что хочет процессор.
-                string text;
-                if (plural) text = Loc.Plural(template, count, args);
-                else text = args != null && args.Length > 0 ? Loc.Format(template, args) : Loc.Get(template);
+                var text = Loc.ComposeBinding(template, args, named, plural, count, Context);
                 element.text = decorate != null ? decorate(text) : text;
                 return;
             }
 
             EnsureSubscribed();
-            Bind(element, template, decorate, args, plural, count);
+            Bind(element, template, decorate, args, named, plural, count);
         }
 
         /// <summary>Пост-обработка «подставить аргументы». Устарело: передавайте аргументы в <c>Set</c>.</summary>
@@ -521,7 +596,12 @@ namespace Exerussus.AppCore.Localization
             if (_disposed) return;
             _disposed = true;
 
-            if (_subscribed) Loc.Changed -= OnChanged;
+            if (_subscribed)
+            {
+                Loc.Changed -= OnChanged;
+                Loc.KeysRefreshed -= OnKeysRefreshed;
+            }
+
             _subscribed = false;
 
             _flush?.Pause();
@@ -541,10 +621,11 @@ namespace Exerussus.AppCore.Localization
             return Processor != null && Processor.Wants(template);
         }
 
-        private void Bind(TextElement element, string template, Func<string, string> decorate, object[] args, bool plural, double count)
+        private void Bind(TextElement element, string template, Func<string, string> decorate, object[] args,
+                          (string name, object value)[] named, bool plural, double count)
         {
             var binding = new LocBinding(this, element, template);
-            binding.Configure(decorate, args, plural, count);
+            binding.Configure(decorate, args, named, plural, count);
             _bindings.Add(element, binding);
             binding.Attach();
             binding.Refresh();
@@ -619,6 +700,36 @@ namespace Exerussus.AppCore.Localization
 
             for (var i = 0; i < _buffer.Count; i++) ReleaseElement(_buffer[i].Element);
             _buffer.Clear();
+        }
+
+        /// <summary>Проход пересчитал ключи (<see cref="Loc.RefreshPass(string,string)"/>): пересобрать только их.</summary>
+        private void OnKeysRefreshed(IReadOnlyCollection<string> keys)
+        {
+            if (_disposed || _bindings.Count == 0) return;
+
+            if (_hasContext && Context == null)
+            {
+                Dispose();
+                return;
+            }
+
+            var set = keys as ICollection<string>;
+            _buffer.Clear();
+            foreach (var binding in _bindings.Values)
+            {
+                if (binding.Sleeping || binding.Key == null) continue;
+                if (set != null ? set.Contains(binding.Key) : Contains(keys, binding.Key)) _buffer.Add(binding);
+            }
+
+            for (var i = 0; i < _buffer.Count; i++) _buffer[i].Refresh();
+            _buffer.Clear();
+        }
+
+        private static bool Contains(IReadOnlyCollection<string> keys, string key)
+        {
+            foreach (var k in keys)
+                if (string.Equals(k, key, StringComparison.Ordinal)) return true;
+            return false;
         }
 
         private void OnChanged()

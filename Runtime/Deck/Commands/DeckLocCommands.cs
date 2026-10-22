@@ -51,6 +51,11 @@ namespace Exerussus.AppCore.Deck
                    .Run(Layers)
                    .Register(owner);
 
+            AppDeck.Command("loc.passes")
+                   .Summary("Проходы и резолверы в порядке применения")
+                   .Run(Passes)
+                   .Register(owner);
+
             AppDeck.Command("loc.reload")
                    .Summary("Перечитать базовую таблицу и слои из файлов")
                    .Run(ctx =>
@@ -136,6 +141,42 @@ namespace Exerussus.AppCore.Deck
                 sb.Append($"\nЗапрошены, но нет нигде: {requested.Count}");
                 foreach (var key in requested) sb.Append("\n  ").Append(key);
             }
+
+            var resolved = Loc.ResolvedKeys;
+            if (resolved.Count > 0)
+            {
+                sb.Append($"\nНет в таблицах, закрыты резолвером: {resolved.Count}");
+                var shown = 0;
+                foreach (var pair in resolved)
+                {
+                    if (shown++ >= 100)
+                    {
+                        sb.Append($"\n  … и ещё {resolved.Count - 100}");
+                        break;
+                    }
+
+                    sb.Append("\n  ").Append(pair.Key).Append("  [").Append(pair.Value).Append(']');
+                }
+            }
+
+            ctx.Print(sb.ToString());
+        }
+
+        private static void Passes(CommandContext ctx)
+        {
+            var sb = new StringBuilder();
+            var passes = Loc.Passes;
+            sb.Append($"Проходов: {passes.Count}");
+            for (var i = 0; i < passes.Count; i++)
+            {
+                var p = passes[i];
+                sb.Append($"\n  {i + 1}. {p.Id}  [{p.Stage}, {p.Source}]  ключей: {p.Keys}  · {p.Assembly}");
+                if (p.Owner != null) sb.Append("  владелец: ").Append(p.Owner);
+            }
+
+            var resolvers = Loc.ResolverIds;
+            sb.Append($"\nРезолверов: {resolvers.Count}");
+            for (var i = 0; i < resolvers.Count; i++) sb.Append($"\n  {i + 1}. ").Append(resolvers[i]);
 
             ctx.Print(sb.ToString());
         }

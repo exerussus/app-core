@@ -154,6 +154,12 @@ namespace Exerussus.AppCore.Localization
 
         /// <summary>Значения нет нигде — показана заглушка.</summary>
         Missing = 5,
+
+        /// <summary>Проход изменил строку (<see cref="LocStep.Reason"/> — стадия).</summary>
+        Pass = 6,
+
+        /// <summary>Значение дал резолвер (<see cref="LocStep.LayerId"/> — его id).</summary>
+        Resolved = 7,
     }
 
     /// <summary>Шаг истории ключа: кто, что и почему.</summary>
@@ -185,6 +191,8 @@ namespace Exerussus.AppCore.Localization
                 LocStepKind.Rejected => $"{LayerId}: {slot} отклонено — {Reason}",
                 LocStepKind.Fallback => $"{slot}: нет значения, показано с {Reason} — «{Value}»",
                 LocStepKind.Missing => $"{slot}: нет значения нигде — заглушка",
+                LocStepKind.Pass => $"проход {LayerId} ({Reason}): «{Previous}» → «{Value}»",
+                LocStepKind.Resolved => $"{slot}: нет в таблицах, значение дал резолвер {LayerId} — «{Value}»",
                 _ => LayerId,
             };
         }

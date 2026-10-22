@@ -27,7 +27,7 @@ namespace Exerussus.AppCore.Localization
     /// патчится: <see cref="Get(string)"/> возвращает строку как есть, <see cref="AddLayer"/> — false.
     /// </para>
     /// </remarks>
-    public static class Loc
+    public static partial class Loc
     {
         public const char Prefix = '^';
 
@@ -71,33 +71,6 @@ namespace Exerussus.AppCore.Localization
         // инициализации и при их изменении, а не на каждую строку.
         private static bool _active;
 
-        // Готовые переводы текущего языка по полной строке "^KEY" (и по форме окончания):
-        // повторный Get — один поиск в словаре без единой аллокации. Сбрасываются при пересборке
-        // таблицы и смене языка.
-        private static readonly Dictionary<string, string> Resolved = new(StringComparer.Ordinal);
-
-        // Окончания: на ключ — правило языка, с которого строка реально берётся (при фолбэке это
-        // не текущий язык), и шаблоны по формам, заполняемые по мере обращения.
-        private sealed class PluralEntry
-        {
-            public string Rule;
-            public readonly string[] Patterns = new string[(int)PluralCategory.Other + 1];
-        }
-
-        private static readonly Dictionary<string, PluralEntry> ResolvedPlural = new(StringComparer.Ordinal);
-
-        // Предупреждение «перевод не подходит под аргументы» — раз на ключ, а не на каждый вызов.
-        private static readonly HashSet<string> ReportedFormat = new(StringComparer.Ordinal);
-
-        private static CultureInfo _culture;
-
-        private static void ClearResolved()
-        {
-            _culture = null;
-            Resolved.Clear();
-            ResolvedPlural.Clear();
-            ReportedFormat.Clear();
-        }
         private static bool _traceActive;
         private static string _language;
         private static string _primary;
@@ -125,7 +98,9 @@ namespace Exerussus.AppCore.Localization
             RuntimeProtected.Clear();
             _initialized = false;
             _active = false;
+            _enabledOverride = null;
             ClearResolved();
+            ResetPipeline();
             _traceActive = false;
             _language = null;
             _primary = null;
@@ -138,14 +113,37 @@ namespace Exerussus.AppCore.Localization
 
         private static LocSettings Settings => LocSettings.Current;
 
-        /// <summary>Включена ли локализация (галочка в настройках).</summary>
+        /// <summary>
+        /// Включена ли локализация: галочка в настройках, с поправкой на <see cref="LocSettings.DisableInBatchMode"/>
+        /// и <see cref="OverrideEnabled"/>.
+        /// </summary>
         public static bool Enabled
         {
             get
             {
+                if (_enabledOverride.HasValue) return _enabledOverride.Value;
+
                 var settings = Settings;
-                return settings != null && settings.Enabled;
+                if (settings == null || !settings.Enabled) return false;
+                return !(settings.DisableInBatchMode && Application.isBatchMode);
             }
+        }
+
+        private static bool? _enabledOverride;
+
+        /// <summary>
+        /// Включить или выключить локализацию на этот запуск — до первой инициализации (выделенный сервер,
+        /// тесты). Выключено — таблицы не разбираются, слои и проходы не принимаются, <c>Get("^X")</c> → «^X».
+        /// </summary>
+        public static void OverrideEnabled(bool enabled)
+        {
+            if (_initialized)
+            {
+                Debug.LogWarning("[Loc] OverrideEnabled после инициализации не действует — зовите его до первого обращения к Loc.");
+                return;
+            }
+
+            _enabledOverride = enabled;
         }
 
         /// <summary>Пишется ли история ключей в этом запуске.</summary>
@@ -228,18 +226,7 @@ namespace Exerussus.AppCore.Localization
 
         // ================================================================ чтение
 
-        /// <summary>Перевод ключа на текущем языке. Строка без <c>^</c> — как есть.</summary>
-        public static string Get(string text)
-        {
-            if (!IsKey(text) || !EnsureInitialized()) return text;
-            if (Resolved.TryGetValue(text, out var cached)) return cached;
-
-            var value = ResolveOrMissing(text.Substring(1), _language, null);
-            Resolved[text] = value;
-            return value;
-        }
-
-        /// <summary>Перевод ключа на заданном языке.</summary>
+        /// <summary>Перевод ключа на заданном языке (без кэша и без проходов — для инструментов).</summary>
         public static string Get(string text, string language)
         {
             if (!IsKey(text) || !EnsureInitialized()) return text;
@@ -262,100 +249,6 @@ namespace Exerussus.AppCore.Localization
             }
         }
 
-        /// <summary>Перевод с подстановкой аргументов (<c>{0}</c>, <c>{1}</c> — как в string.Format).</summary>
-        public static string Format(string text, params object[] args) => FormatPattern(text, Get(text), args);
-
-        /// <summary>Перевод с одним аргументом — без массива параметров.</summary>
-        public static string Format(string text, object arg0)
-        {
-            var pattern = Get(text);
-            if (string.IsNullOrEmpty(pattern)) return pattern;
-
-            try { return string.Format(Culture, pattern, arg0); }
-            catch (FormatException) { return ReportFormat(text, pattern, 1); }
-        }
-
-        /// <summary>Подставляет аргументы в уже переведённый шаблон (культура языка, предупреждение раз на ключ).</summary>
-        public static string FormatPattern(string key, string pattern, object[] args)
-        {
-            if (args == null || args.Length == 0 || string.IsNullOrEmpty(pattern)) return pattern;
-
-            try { return string.Format(Culture, pattern, args); }
-            catch (FormatException) { return ReportFormat(key, pattern, args.Length); }
-        }
-
-        /// <summary>Шаблон окончаний: число — <c>{0}</c>, остальные аргументы — <c>{1}</c> и дальше.</summary>
-        public static string FormatPattern(string key, string pattern, double count, object[] args)
-        {
-            if (string.IsNullOrEmpty(pattern)) return pattern;
-
-            try
-            {
-                if (args == null || args.Length == 0) return string.Format(Culture, pattern, count);
-
-                var all = new object[args.Length + 1];
-                all[0] = count;
-                Array.Copy(args, 0, all, 1, args.Length);
-                return string.Format(Culture, pattern, all);
-            }
-            catch (FormatException) { return ReportFormat(key, pattern, (args?.Length ?? 0) + 1); }
-        }
-
-        private static string ReportFormat(string key, string pattern, int count)
-        {
-            if (ReportedFormat.Add(key ?? string.Empty))
-                Debug.LogWarning($"[Loc] Перевод «{key}» не подходит под аргументы ({count}): «{pattern}».");
-            return pattern;
-        }
-
-        /// <summary>
-        /// Шаблон окончания для числа, без подстановки. Правило — того языка, с которого строка
-        /// на деле берётся (ключ без перевода показывается с фолбэка — и склоняется по его правилу).
-        /// </summary>
-        public static string PluralPattern(string text, double count)
-        {
-            if (!IsKey(text) || !EnsureInitialized()) return text;
-
-            if (!ResolvedPlural.TryGetValue(text, out var entry))
-            {
-                entry = new PluralEntry();
-                Resolve(text.Substring(1), _language, null, out var used);
-                entry.Rule = PluralRules.RuleFor(FindLanguage(used ?? _language) ?? new LocLanguage(used ?? _language, null));
-                ResolvedPlural.Add(text, entry);
-            }
-
-            var category = PluralRules.Select(entry.Rule, count);
-            var pattern = entry.Patterns[(int)category];
-            if (pattern != null) return pattern;
-
-            var form = category == PluralCategory.Other ? null : LocSlots.FormOf(category);
-            pattern = ResolveOrMissing(text.Substring(1), _language, form);
-            entry.Patterns[(int)category] = pattern;
-            return pattern;
-        }
-
-        /// <summary>
-        /// Перевод с окончанием по числу. Форма выбирается правилом текущего языка; число
-        /// подставляется как <c>{0}</c>, остальные аргументы — <c>{1}</c> и дальше.
-        /// Нет нужной формы — берётся основное значение.
-        /// </summary>
-        public static string Plural(string text, double count, params object[] args) =>
-            FormatPattern(text, PluralPattern(text, count), count, args);
-
-        /// <inheritdoc cref="Plural(string,double,object[])"/>
-        public static string Plural(string text, int count, params object[] args) =>
-            FormatPattern(text, PluralPattern(text, count), count, args);
-
-        /// <summary>Окончание по целому числу без массива параметров.</summary>
-        public static string Plural(string text, int count)
-        {
-            var pattern = PluralPattern(text, count);
-            if (string.IsNullOrEmpty(pattern)) return pattern;
-
-            try { return string.Format(Culture, pattern, count); }
-            catch (FormatException) { return ReportFormat(text, pattern, 1); }
-        }
-
         /// <summary>Есть ли ключ (с <c>^</c> или без) хоть на каком-то языке.</summary>
         public static bool Has(string key)
         {
@@ -369,7 +262,9 @@ namespace Exerussus.AppCore.Localization
             value = null;
             if (string.IsNullOrEmpty(key) || !EnsureInitialized()) return false;
 
-            value = Resolve(KeyOf(key), language ?? _language, form, out _);
+            key = KeyOf(key);
+            language ??= _language;
+            value = Resolve(key, language, form, out _) ?? TryResolvers(key, language, out _);
             return value != null;
         }
 
@@ -544,10 +439,12 @@ namespace Exerussus.AppCore.Localization
         {
             if (!EnsureInitialized()) return null;
 
-            return Writers.TryGetValue(KeyOf(key), out var slots) &&
-                   slots.TryGetValue(LocSlots.Make(language ?? _language, form), out var layers) && layers.Count > 0
-                ? layers[layers.Count - 1]
-                : null;
+            key = KeyOf(key);
+            if (Writers.TryGetValue(key, out var slots) &&
+                slots.TryGetValue(LocSlots.Make(language ?? _language, form), out var layers) && layers.Count > 0)
+                return layers[layers.Count - 1];
+
+            return ResolvedBy.TryGetValue(key, out var resolver) ? ResolverPrefix + resolver : null;
         }
 
         /// <summary>
@@ -574,7 +471,9 @@ namespace Exerussus.AppCore.Localization
             if (string.IsNullOrEmpty(target)) return list;
 
             var value = Resolve(key, target, null, out var usedLanguage);
-            if (value == null)
+            if (value == null && ResolvedBy.TryGetValue(key, out var resolver))
+                list.Add(new LocStep { LayerId = resolver, Kind = LocStepKind.Resolved, Language = target, Value = TryResolvers(key, target, out _) });
+            else if (value == null)
                 list.Add(new LocStep { Kind = LocStepKind.Missing, Language = target });
             else if (!LocSlots.Same(usedLanguage, target))
                 list.Add(new LocStep { Kind = LocStepKind.Fallback, Language = target, Value = value, Reason = usedLanguage });
@@ -976,10 +875,12 @@ namespace Exerussus.AppCore.Localization
             "lowercase", "uppercase", "smallcaps", "nobr",
         };
 
-        private static bool PassRichText(ref string text, LocSettings settings, out string reason)
+        private static bool PassRichText(ref string text, LocSettings settings, out string reason) =>
+            PassRichText(ref text, settings != null ? settings.ModRichText : LocModRichText.Validate, out reason);
+
+        private static bool PassRichText(ref string text, LocModRichText mode, out string reason)
         {
             reason = null;
-            var mode = settings != null ? settings.ModRichText : LocModRichText.Validate;
             if (mode == LocModRichText.Allow || text.IndexOf('<') < 0) return true;
 
             if (mode == LocModRichText.Strip)
@@ -1066,9 +967,14 @@ namespace Exerussus.AppCore.Localization
 
         private static string ResolveOrMissing(string key, string language, string form)
         {
-            var value = Resolve(key, language, form, out _);
+            var value = Resolve(key, language, form, out _) ?? TryResolvers(key, language, out _);
             if (value != null) return value;
 
+            return Missing(key);
+        }
+
+        private static string Missing(string key)
+        {
             var settings = Settings;
             RequestedMissing.Add(key);
 
