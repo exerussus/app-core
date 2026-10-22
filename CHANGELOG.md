@@ -26,7 +26,9 @@
 - Резолверы недостающих ключей: `Loc.AddResolver`, `RemoveResolver(s)`, `RefreshResolvers`, `ResolvedKeys`.
   Зовутся после фолбэков, до заглушки; промахи кэшируются. `WhereFrom` — `resolver:<id>`, история — шаг
   «значение дал резолвер».
-- Ключ без `^`: `Loc.GetKey`, `TryGetKey`, `FormatKey`, `PluralKey` — общий кэш с `Get`, без склейки строк.
+- Ключ без `^`: `Loc.GetKey`, `TryGetKey`, `FormatKey`, `PluralKey` — общий кэш с `Get`, без склейки строк. При выключенной
+  локализации возвращают сам ключ (без «^»); промах `TryGetKey` запоминается — повторный вызов без резолверов
+  и аллокаций.
 - Выключение на запуск: `Loc.OverrideEnabled(bool)` (до первого обращения) и `LocSettings.DisableInBatchMode`.
 - AppDeck: `loc.passes` (проходы и резолверы); `loc.missing` показывает ключи, закрытые резолвером.
 - EditMode-тесты локализации (`Tests/Editor`; запускаются, если пакет в `testables` манифеста).

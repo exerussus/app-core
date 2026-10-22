@@ -41,6 +41,9 @@ namespace Exerussus.AppCore.Localization
         private static readonly Dictionary<string, PluralEntry> PluralByPrefixed = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, PluralEntry> PluralByKey = new(StringComparer.Ordinal);
 
+        // Ключи, которых не нашёл TryGetKey: повторный вызов — один поиск в множестве.
+        private static readonly HashSet<string> TryMisses = new(StringComparer.Ordinal);
+
         // Разобранные шаблоны по тексту: одинаковый перевод под разными ключами разбирается один раз.
         private static readonly Dictionary<string, LocTemplate> Templates = new(StringComparer.Ordinal);
 
@@ -67,6 +70,7 @@ namespace Exerussus.AppCore.Localization
             ReportedFormat.Clear();
             ReportedTokens.Clear();
             ResolverMisses.Clear();
+            TryMisses.Clear();
             ResolvedBy.Clear();
             TracedPasses.Clear();
             for (var i = 0; i < PatternPasses.Count; i++) PatternPasses[i].Index.Clear();
@@ -175,11 +179,14 @@ namespace Exerussus.AppCore.Localization
             return slot.TextPasses == null ? slot.Text : ApplyTextPasses(slot, slot.Text, null);
         }
 
-        /// <summary>Как <c>Get("^" + key)</c>, без склейки строк: ключ без префикса, тот же кэш.</summary>
+        /// <summary>
+        /// Как <c>Get("^" + key)</c>, без склейки строк: ключ без префикса, тот же кэш. Локализация
+        /// выключена — возвращает сам ключ (без «^» и без аллокаций).
+        /// </summary>
         public static string GetKey(string key)
         {
             if (string.IsNullOrEmpty(key)) return key;
-            if (!EnsureInitialized()) return Prefix + key;
+            if (!EnsureInitialized()) return key;
 
             var slot = SlotOfKey(key);
             return slot.TextPasses == null ? slot.Text : ApplyTextPasses(slot, slot.Text, null);
@@ -193,8 +200,17 @@ namespace Exerussus.AppCore.Localization
 
             if (!ByKey.TryGetValue(key, out var slot))
             {
+                // «Необязательный ключ, иначе id» — частый путь: промах запоминается отдельно от слотов
+                // (без заглушки и без предупреждения — их даст Get, если ключ всё же попросят).
+                if (TryMisses.Contains(key)) return false;
+
                 slot = BuildSlot(key, null, false);
-                if (slot.Missing) return false;   // промах не кэшируем: следующий Get предупредит о нём
+                if (slot.Missing)
+                {
+                    TryMisses.Add(key);
+                    return false;
+                }
+
                 ByKey[key] = slot;
             }
 
@@ -390,7 +406,7 @@ namespace Exerussus.AppCore.Localization
         private static string ComposeKey<TArgs>(string key, ref TArgs args) where TArgs : struct, ILocArgs
         {
             if (string.IsNullOrEmpty(key)) return key;
-            if (!EnsureInitialized()) return Prefix + key;
+            if (!EnsureInitialized()) return key;
             return Finish(SlotOfKey(key), ref args, null);
         }
 
@@ -403,7 +419,7 @@ namespace Exerussus.AppCore.Localization
         private static string ComposePluralKey<TArgs>(string key, ref TArgs args, double count) where TArgs : struct, ILocArgs
         {
             if (string.IsNullOrEmpty(key)) return key;
-            if (!EnsureInitialized()) return Prefix + key;
+            if (!EnsureInitialized()) return key;
             return Finish(PluralSlot(PluralOfKey(key), count), ref args, null);
         }
 

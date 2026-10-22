@@ -194,6 +194,25 @@ TEST_COINS
             Assert.IsFalse(Loc.TryGetKey("TEST_NOWHERE", out _));
         }
 
+        [Test]
+        public void TryGetKey_miss_is_cached()
+        {
+            var calls = 0;
+            Loc.AddResolver("test.none", (string key, string language, out string text) =>
+            {
+                calls++;
+                text = null;
+                return false;
+            }, _owner);
+
+            Assert.IsFalse(Loc.TryGetKey("TEST_OPTIONAL", out _));
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 100; i++) Loc.TryGetKey("TEST_OPTIONAL", out _);
+
+            Assert.AreEqual(1, calls);
+            Assert.AreEqual(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
         // ------------------------------------------------------------ проходы
 
         private sealed class GenderPass : ILocPass
@@ -378,6 +397,7 @@ TEST_COINS
             Loc.OverrideEnabled(false);
 
             Assert.AreEqual("^TEST_PLAIN", Loc.Get("^TEST_PLAIN"));
+            Assert.AreEqual("TEST_PLAIN", Loc.GetKey("TEST_PLAIN"));
             Assert.IsFalse(Loc.AddLayerFromText("x", Table));
             Assert.IsFalse(Loc.AddPass("x", new AppendPass("!"), LocPassStage.Text));
             Assert.IsFalse(Loc.AddResolver("x", (string k, string l, out string t) => { t = null; return false; }));
