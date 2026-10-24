@@ -22,7 +22,7 @@ namespace Exerussus.AppCore.Analytics
         {
             try
             {
-                var dir = Path.Combine(_root, DateTime.UtcNow.ToString("yyyy-MM-dd"));
+                var dir = Path.Combine(_root, DateTime.UtcNow.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
                 Directory.CreateDirectory(dir);
                 File.WriteAllText(Path.Combine(dir, packet.Id + ".jsonl"), packet.Content);
                 AppAnalytics.Complete(packet.Id);

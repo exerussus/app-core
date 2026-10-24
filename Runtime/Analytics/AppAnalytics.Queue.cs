@@ -39,6 +39,7 @@ namespace Exerussus.AppCore.Analytics
 
             // лёгкий режим молчал без адаптера — сессия начинается для данных сейчас
             if (wasSilent && adapter != null) WriteSystem("app.session.start");
+            UpdatePump();
         }
 
         /// <summary>Заменить хранилище очереди. Уже накопленные пакеты переносятся в новое.</summary>
@@ -54,7 +55,8 @@ namespace Exerussus.AppCore.Analytics
             var previous = _store;
             _store = store;
 
-            foreach (var packet in _queue)
+            // копия: код хранилища может позвать Complete и изменить очередь
+            foreach (var packet in _queue.ToArray())
             {
                 StoreSave(packet);
                 if (previous == null) continue;
@@ -119,6 +121,20 @@ namespace Exerussus.AppCore.Analytics
         }
 
         /// <summary>
+        /// Доставить ждущие пакеты сейчас, без пауз повторов — например, адаптер снова подключился к серверу.
+        /// Ответивший <see cref="Fail"/> пакет иначе ждал бы нарастающую паузу (до retryMax).
+        /// </summary>
+        public static void RetryNow()
+        {
+            if (!_booted) return;
+            foreach (var packet in _queue)
+                if (packet.State == PacketState.Pending) packet.RetryAt = 0;
+            _deliverNotBefore = 0;
+            Pump(force: true, urgent: false);
+            UpdatePump();
+        }
+
+        /// <summary>
         /// Доставка не удалась: пакет вернётся в очередь. <paramref name="retryAfterSeconds"/> — не раньше чем через
         /// столько секунд (иначе нарастающая пауза из настроек).
         /// </summary>
@@ -164,6 +180,7 @@ namespace Exerussus.AppCore.Analytics
                 _queue.Add(packet);
                 _queuedBytes += packet.Bytes;
                 EnforceLimits();
+                UpdatePump();
             }
             catch (Exception e)
             {
@@ -171,10 +188,22 @@ namespace Exerussus.AppCore.Analytics
             }
         }
 
-        /// <summary>Переполнение: выбросить самые старые ждущие пакеты, запомнить сколько событий потеряно.</summary>
+        /// <summary>
+        /// Переполнение: выбросить самые старые ждущие пакеты, запомнить сколько событий потеряно. Лимиты — на ждущие:
+        /// пакеты у адаптера (их не больше maxInFlight) не вытесняют новые, пока сеть медленная.
+        /// </summary>
         private static void EnforceLimits()
         {
-            while (_queue.Count > _maxQueuedPackets || _queuedBytes > _maxQueuedBytes)
+            var pending = 0;
+            long pendingBytes = 0;
+            foreach (var p in _queue)
+                if (p.State == PacketState.Pending)
+                {
+                    pending++;
+                    pendingBytes += p.Bytes;
+                }
+
+            while (pending > _maxQueuedPackets || pendingBytes > _maxQueuedBytes)
             {
                 var oldest = -1;
                 for (int i = 0; i < _queue.Count; i++)
@@ -184,10 +213,29 @@ namespace Exerussus.AppCore.Analytics
                     break;
                 }
 
-                if (oldest < 0) return; // всё у адаптера — ждём ответа
+                if (oldest < 0) break;
 
                 var packet = _queue[oldest];
                 _queue.RemoveAt(oldest);
+                _queuedBytes -= packet.Bytes;
+                pending--;
+                pendingBytes -= packet.Bytes;
+                StoreDelete(packet.Id);
+                _dropped += Math.Max(1, packet.EventCount);
+            }
+
+            // жёсткий потолок на всю очередь, включая пакеты у адаптера: срочные сбросы (скрытие страницы) отдают
+            // всё ждущее, и адаптер, который держит пакеты, не должен растить память без предела — самые старые
+            // теряются (поздний Complete по ним просто ничего не найдёт)
+            var settings = _settings;
+            var extra = settings != null ? settings.MaxInFlight : 4;
+            var packetBytes = settings != null ? (long)settings.MaxPacketChars * sizeof(char) : 0;
+            var hardPackets = _maxQueuedPackets + extra;
+            var hardBytes = _maxQueuedBytes + extra * packetBytes;
+            while (_queue.Count > 0 && (_queue.Count > hardPackets || _queuedBytes > hardBytes))
+            {
+                var packet = _queue[0];
+                _queue.RemoveAt(0);
                 _queuedBytes -= packet.Bytes;
                 StoreDelete(packet.Id);
                 _dropped += Math.Max(1, packet.EventCount);
@@ -196,9 +244,11 @@ namespace Exerussus.AppCore.Analytics
 
         private static void ClearQueue()
         {
-            foreach (var packet in _queue) StoreDelete(packet.Id);
+            // сначала очередь пуста, потом хранилище — по копии: его код может позвать Complete
+            var snapshot = _queue.ToArray();
             _queue.Clear();
             _queuedBytes = 0;
+            foreach (var packet in snapshot) StoreDelete(packet.Id);
         }
 
         private static int IndexOf(string packetId)
@@ -210,8 +260,10 @@ namespace Exerussus.AppCore.Analytics
 
         private static double Backoff(int attempt)
         {
-            var delay = _settings.RetryBase * Math.Pow(2, Math.Max(0, attempt - 1));
-            return Math.Min(delay, _settings.RetryMax);
+            var settings = _settings;
+            if (settings == null) return 60;
+            var delay = settings.RetryBase * Math.Pow(2, Math.Min(30, Math.Max(0, attempt - 1)));
+            return Math.Min(delay, settings.RetryMax);
         }
 
         private static IAnalyticsAdapter Adapter()
@@ -226,17 +278,21 @@ namespace Exerussus.AppCore.Analytics
 
         // ---------------------------------------------------------------- доставка (каждый кадр, не чаще 4 раз в секунду)
 
-        private static void Pump(bool force)
+        /// <summary>
+        /// Доставка. <paramref name="urgent"/> (скрытие страницы, выход): все ждущие пакеты — адаптеру сразу,
+        /// мимо паузы старта, паузы повторов и лимита пакетов в полёте: другого кадра может не быть.
+        /// </summary>
+        private static void Pump(bool force, bool urgent)
         {
             if (!_booted || _pumping) return; // адаптер позвал Flush/Pump изнутри Deliver — не входить второй раз
 
-            // простой (сбор выключен игроком или некуда доставлять, очередь пуста, пакета нет): кадр стоит два чтения полей
+            // простой (сбор выключен игроком или некуда доставлять, очередь пуста, пакета нет)
             if (!force && _queue.Count == 0 && _bufferPacketId == null && !CanWrite) return;
 
             _pumping = true;
             try
             {
-                PumpCore(force);
+                PumpCore(force, urgent);
             }
             catch (Exception e)
             {
@@ -248,8 +304,10 @@ namespace Exerussus.AppCore.Analytics
             }
         }
 
-        private static void PumpCore(bool force)
+        private static void PumpCore(bool force, bool urgent)
         {
+            // без опоры на catch (WebGL: NRE не ловится) — настройки проверяются явно на каждом выходе наружу
+            if (_settings == null) return;
 
             var now = Now();
             if (!force && now < _nextPump) return;
@@ -259,7 +317,7 @@ namespace Exerussus.AppCore.Analytics
             if (_bufferPacketId != null && _bufferEvents > 0 && now - _bufferOpenedAt >= _settings.MaxPacketAge) Seal();
             if (!_booted) return;
 
-            if (now < _deliverNotBefore) return;
+            if (!urgent && now < _deliverNotBefore) return;
 
             var inFlight = 0;
             _candidates.Clear();
@@ -280,7 +338,7 @@ namespace Exerussus.AppCore.Analytics
                     continue;
                 }
 
-                if (now >= packet.RetryAt) _candidates.Add(packet);
+                if (urgent || now >= packet.RetryAt) _candidates.Add(packet);
             }
 
             if (_candidates.Count == 0) return;
@@ -290,12 +348,14 @@ namespace Exerussus.AppCore.Analytics
 
             foreach (var packet in _candidates)
             {
-                if (inFlight >= _settings.MaxInFlight) break;
+                var settings = _settings;
+                if (settings == null) break;
+                if (!urgent && inFlight >= settings.MaxInFlight) break;
                 if (packet.State != PacketState.Pending || IndexOf(packet.Id) < 0) continue;
 
                 packet.State = PacketState.InFlight;
                 packet.Attempt++;
-                packet.LeaseUntil = now + _settings.DeliveryLease;
+                packet.LeaseUntil = now + settings.DeliveryLease;
                 inFlight++;
 
                 try
@@ -307,6 +367,9 @@ namespace Exerussus.AppCore.Analytics
                     Debug.LogException(e);
                     Fail(packet.Id);
                 }
+
+                // адаптер мог выключить модуль (отказ, выключение сбора с очисткой) — дальше без настроек нельзя
+                if (!_booted) break;
             }
 
             _candidates.Clear();

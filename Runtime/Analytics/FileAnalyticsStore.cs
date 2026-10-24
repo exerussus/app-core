@@ -7,7 +7,8 @@ namespace Exerussus.AppCore.Analytics
 {
     /// <summary>
     /// Очередь пакетов файлами в <c>persistentDataPath/AppAnalytics/Outbox</c>: один пакет — один файл.
-    /// Работает на десктопе, Android и WebGL (там persistentDataPath живёт в IndexedDB).
+    /// Десктоп и Android. На WebGL не используется (там всегда лёгкий режим, очередь в памяти).
+    /// Ошибка записи или удаления пробрасывается: модуль после первой ошибки работает без диска.
     /// </summary>
     public sealed class FileAnalyticsStore : IAnalyticsStore
     {
@@ -21,32 +22,18 @@ namespace Exerussus.AppCore.Analytics
 
         public void Save(string packetId, string content)
         {
-            try
-            {
-                System.IO.Directory.CreateDirectory(_dir);
-                var path = PathOf(packetId);
-                var temp = path + ".tmp";
-                File.WriteAllText(temp, content);
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(temp, path);
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"[AppAnalytics] Не удалось сохранить пакет {packetId} в очередь: {e.Message}");
-            }
+            System.IO.Directory.CreateDirectory(_dir);
+            var path = PathOf(packetId);
+            var temp = path + ".tmp";
+            File.WriteAllText(temp, content);
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(temp, path);
         }
 
         public void Delete(string packetId)
         {
-            try
-            {
-                var path = PathOf(packetId);
-                if (File.Exists(path)) File.Delete(path);
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"[AppAnalytics] Не удалось удалить пакет {packetId} из очереди: {e.Message}");
-            }
+            var path = PathOf(packetId);
+            if (File.Exists(path)) File.Delete(path);
         }
 
         public IEnumerable<KeyValuePair<string, string>> LoadAll()
@@ -84,6 +71,6 @@ namespace Exerussus.AppCore.Analytics
             return result;
         }
 
-        private string PathOf(string packetId) => Path.Combine(_dir, packetId + ".jsonl");
+        private string PathOf(string packetId) => Path.Combine(_dir, (packetId ?? "null") + ".jsonl");
     }
 }

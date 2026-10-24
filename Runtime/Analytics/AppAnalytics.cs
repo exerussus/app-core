@@ -94,7 +94,7 @@ namespace Exerussus.AppCore.Analytics
         private static bool InRun => _runId != null && !ReferenceEquals(_runId, SilentRun);
 
         /// <summary>Выбор игрока: сбор включён (хранится в PlayerPrefs). Пишется ли сейчас — <see cref="IsCollecting"/>.</summary>
-        public static bool CollectEnabled => _collecting;
+        public static bool CollectEnabled => _pendingCollect ?? _collecting;
 
         /// <summary>Сменился профиль.</summary>
         public static event Action ProfileChanged;
@@ -102,48 +102,99 @@ namespace Exerussus.AppCore.Analytics
         /// <summary>Сбор включён/выключен.</summary>
         public static event Action CollectingChanged;
 
-        /// <summary>Включить или выключить сбор (выбор игрока, хранится в PlayerPrefs).</summary>
+        /// <summary>
+        /// Включить или выключить сбор (выбор игрока, хранится в PlayerPrefs). Тот же выбор — ничего не делает
+        /// (можно звать каждый кадр). До старта модуля выбор запоминается и записывается при старте; выключенный
+        /// модуль PlayerPrefs не трогает. Исключений в вызывающий код не выпускает.
+        /// </summary>
         public static void SetCollecting(bool on)
         {
-            PlayerPrefs.SetInt(PrefsCollect, on ? 1 : 0);
-            PlayerPrefs.Save();
-
+            if (_faulted) return;
             if (!_booted)
             {
-                _collecting = on;
+                _pendingCollect = on;
                 return;
             }
 
             if (_collecting == on) return;
 
-            if (!on)
+            try
             {
-                WriteSystem("app.analytics.off");
-                Seal();
-                _collecting = false;
-                if (_settings != null && _settings.DiscardQueueOnDisable) ClearQueue();
+                if (!on)
+                {
+                    WriteSystem("app.analytics.off");
+                    Seal();
+                    if (!_booted) return; // отказ посреди вызова — дальше ничего
+                    _collecting = false;
+                    var settings = _settings;
+                    if (settings != null && settings.DiscardQueueOnDisable) ClearQueue();
+                }
+                else
+                {
+                    _collecting = true;
+                    WriteSystem("app.analytics.on");
+                }
+
+                if (!_booted) return;
+                PrefsSetInt(PrefsCollect, on ? 1 : 0);
+                UpdatePump();
             }
-            else
+            catch (Exception e)
             {
-                _collecting = true;
-                WriteSystem("app.analytics.on");
+                Fault(e);
+                return;
             }
 
             Notify(CollectingChanged);
         }
 
-        /// <summary>Новый профиль: текущий пакет закрывается, дальше события идут под новым id.</summary>
+        /// <summary>
+        /// Новый профиль (<c>player_&lt;guid&gt;</c>): текущий пакет закрывается, дальше события идут под новым id.
+        /// Модуль не запущен — ничего не делает и возвращает текущий id (или пустую строку).
+        /// </summary>
         public static string NewProfile()
         {
-            var previous = _profileId;
-            if (_booted) Seal();
+            if (!_booted) return _profileId ?? string.Empty;
+            ChangeProfile(ProfilePrefix + Guid.NewGuid().ToString("N"));
+            return _profileId;
+        }
 
-            _profileId = ProfilePrefix + Guid.NewGuid().ToString("N");
-            PlayerPrefs.SetString(PrefsProfile, _profileId);
-            PlayerPrefs.Save();
+        /// <summary>Максимальная длина id профиля, заданного проектом.</summary>
+        public const int MaxProfileId = 64;
 
-            if (_booted)
+        /// <summary>
+        /// Свой id профиля — например, id пользователя из авторизации: не теряется вместе с PlayerPrefs (IndexedDB
+        /// в WebView), один на устройствах игрока. Тот же id — ничего не делает. До старта модуля — применяется при
+        /// старте. До 64 печатных символов без кавычек и «\»; неверный id отклоняется (предупреждение в лог).
+        /// </summary>
+        public static void SetProfileId(string id)
+        {
+            if (_faulted) return;
+            if (!ValidProfileId(id))
             {
+                Debug.LogWarning($"[AppAnalytics] Id профиля отклонён: 1–{MaxProfileId} печатных символов без кавычек и «\\».");
+                return;
+            }
+
+            if (!_booted)
+            {
+                _pendingProfile = id;
+                return;
+            }
+
+            if (string.Equals(id, _profileId, StringComparison.Ordinal)) return;
+            ChangeProfile(id);
+        }
+
+        private static void ChangeProfile(string id)
+        {
+            var previous = _profileId;
+            try
+            {
+                Seal();
+                _profileId = id;
+                PrefsSetString(PrefsProfile, id);
+
                 if (BeginSystem("app.profile.new"))
                 {
                     WriteField("previous", previous);
@@ -152,9 +203,21 @@ namespace Exerussus.AppCore.Analytics
 
                 Flush(AnalyticsFlushReason.ProfileChanged);
             }
+            catch (Exception e)
+            {
+                Fault(e);
+                return;
+            }
 
             Notify(ProfileChanged);
-            return _profileId;
+        }
+
+        private static bool ValidProfileId(string id)
+        {
+            if (string.IsNullOrEmpty(id) || id.Length > MaxProfileId) return false;
+            foreach (var c in id)
+                if (c < 0x20 || c == '"' || c == '\\' || c == 0x7f) return false;
+            return true;
         }
 
         /// <summary>Часы игрового времени (стоят на паузе). Пишутся в события полем <c>g</c>. <c>null</c> — не писать.</summary>
@@ -419,6 +482,12 @@ namespace Exerussus.AppCore.Analytics
                 // нечего доставлять и не пишется — адаптер не трогаем (игрок отказался от сбора)
                 if (_queue.Count == 0 && !CanWrite) return;
 
+                // сначала пакеты адаптеру (на скрытии и выходе — мимо пауз и лимита в полёте), потом OnFlush:
+                // адаптер, который на Pause делает sendBeacon, уже держит только что закрытый пакет
+                var urgent = reason == AnalyticsFlushReason.Pause || reason == AnalyticsFlushReason.Quit;
+                Pump(force: true, urgent: urgent);
+                if (!_booted) return;
+
                 var adapter = Adapter();
                 if (adapter != null)
                 {
@@ -432,7 +501,7 @@ namespace Exerussus.AppCore.Analytics
                     }
                 }
 
-                Pump(force: true);
+                UpdatePump();
             }
             finally
             {
@@ -454,14 +523,8 @@ namespace Exerussus.AppCore.Analytics
             Debug.LogError("[AppAnalytics] Внутренняя ошибка — аналитика выключена до конца запуска.");
             Debug.LogException(e);
 
-            try
-            {
-                Shutdown(seal: false);
-            }
-            catch
-            {
-                _booted = false;
-            }
+            // отказ мог прийти из кадра насоса или колбэка: объект и подписки не трогаются (fromFault)
+            Shutdown(seal: false, fromFault: true);
         }
 
         private static void Notify(Action handler)
@@ -513,8 +576,37 @@ namespace Exerussus.AppCore.Analytics
         {
             // Raise из колбэка игровых часов (он вызывается внутри StartEvent) — не вкладывать событие в событие
             if (_starting) return;
+
+            // игровые часы — код проекта: зовутся первыми, до записи чего-либо, — чтобы их вызовы в модуль
+            // (Flush, смена профиля) не запечатали полузаписанное событие
+            var hasGame = false;
+            var game = double.NaN;
+            var clock = _gameClock;
+            if (clock != null)
+            {
+                hasGame = true;
+                _starting = true;
+                try
+                {
+                    game = clock();
+                }
+                catch
+                {
+                    game = double.NaN;
+                }
+                finally
+                {
+                    _starting = false;
+                }
+
+                if (!_booted) return; // часы выключили модуль
+            }
+
             if (_inEvent) EndEvent();
-            if (_chars.Length == 0) AllocateBuffer(_settings); // лениво: модуль, который не пишет, не держит буфер
+            if (!_booted) return; // закрытие события могло запечатать пакет и выключить модуль
+            var settings = _settings;
+            if (settings == null) return;
+            if (_chars.Length == 0) AllocateBuffer(settings); // лениво: модуль, который не пишет, не держит буфер
             if (_len >= _softLimit) Seal();
             if (!_booted) return; // Seal мог выключить модуль ошибкой
             EnsureHeader();
@@ -532,24 +624,8 @@ namespace Exerussus.AppCore.Analytics
             Put(",\"t\":");
             PutNumber(now - origin);
 
-            var clock = _gameClock;
-            if (clock != null)
+            if (hasGame)
             {
-                double game;
-                _starting = true;
-                try
-                {
-                    game = clock();
-                }
-                catch
-                {
-                    game = double.NaN;
-                }
-                finally
-                {
-                    _starting = false;
-                }
-
                 Put(",\"g\":");
                 PutNumber(game);
             }
@@ -615,7 +691,8 @@ namespace Exerussus.AppCore.Analytics
             }
 
             _bufferEvents++;
-            if (_bufferEvents >= _settings.MaxEventsPerPacket) Seal();
+            var settings = _settings;
+            if (settings != null && _bufferEvents >= settings.MaxEventsPerPacket) Seal();
         }
 
         /// <summary>Первая строка открытого пакета — заголовок.</summary>
@@ -644,6 +721,7 @@ namespace Exerussus.AppCore.Analytics
             PutString(InRun ? "run" : "session");
             Put(",\"sessionStartUtc\":");
             PutString(_sessionStartUtc);
+            RefreshBuildVersion();
             Put(",\"build\":");
             PutString(_buildVersion);
             Put(",\"platform\":");
@@ -702,20 +780,27 @@ namespace Exerussus.AppCore.Analytics
         private static string _platform = string.Empty;
         private static string _unityVersion = string.Empty;
 
+        private static bool _buildFinal;
+
         private static void CacheHeaderStrings()
         {
-            try
-            {
-                var v = Exerussus.AppCore.Build.BuildInfo.CurrentFullVersion;
-                _buildVersion = string.IsNullOrEmpty(v) ? Application.version : v;
-            }
-            catch
-            {
-                _buildVersion = Application.version;
-            }
-
+            _buildVersion = Application.version ?? string.Empty;
+            _buildFinal = false;
+            RefreshBuildVersion();
             _platform = Application.platform.ToString();
-            _unityVersion = Application.unityVersion;
+            _unityVersion = Application.unityVersion ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Версия сборки с хешем — из BuildInfo, который AppRunner ставит в Awake (позже старта модуля). До этого —
+        /// Application.version; первый заголовок после — уже полная версия. Читается один раз.
+        /// </summary>
+        private static void RefreshBuildVersion()
+        {
+            if (_buildFinal || Exerussus.AppCore.Build.BuildInfo.Current == null) return;
+            var v = Exerussus.AppCore.Build.BuildInfo.CurrentFullVersion;
+            if (!string.IsNullOrEmpty(v)) _buildVersion = v;
+            _buildFinal = true;
         }
 
         // ---------------------------------------------------------------- буфер без аллокаций
@@ -723,6 +808,7 @@ namespace Exerussus.AppCore.Analytics
         /// <summary>Выделить буфер пакета один раз: размер пакета из настроек + запас.</summary>
         private static void AllocateBuffer(AnalyticsSettings settings)
         {
+            if (settings == null) return;
             _softLimit = settings.MaxPacketChars;
             var size = _softLimit + ReserveChars;
             if (_chars.Length != size) _chars = new char[size];

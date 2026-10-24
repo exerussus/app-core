@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Exerussus.AppCore.Analytics
 {
-    /// <summary>Скрытый объект: только чтобы получить OnApplicationPause (Android уходит в фон — последний шанс).</summary>
+    /// <summary>Скрытый объект: OnApplicationPause (Android уходит в фон — последний шанс сбросить пакет).</summary>
     [AddComponentMenu("")]
     internal sealed class AnalyticsHost : MonoBehaviour
     {

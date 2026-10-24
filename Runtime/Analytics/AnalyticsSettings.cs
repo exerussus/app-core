@@ -17,11 +17,11 @@ namespace Exerussus.AppCore.Analytics
 
 #pragma warning disable CS0649
         [Header("Сбор")]
-        [Tooltip("Модуль аналитики включён. Выключено — ничего не создаётся, Raise выходит сразу.")]
-        [SerializeField] private bool enabled = true;
+        [Tooltip("Модуль аналитики включён. Выключено — ничего не создаётся, Raise выходит сразу. По умолчанию выключен: включение — решение проекта.")]
+        [SerializeField] private bool enabled;
 
         [Tooltip("Сбор включён по умолчанию для нового игрока (дальше — его выбор, хранится в PlayerPrefs).")]
-        [SerializeField] private bool collectByDefault = true;
+        [SerializeField] private bool collectByDefault;
 
         [Tooltip("Выключать в batch mode (сервер, CI).")]
         [SerializeField] private bool disableInBatchMode = true;
@@ -42,7 +42,8 @@ namespace Exerussus.AppCore.Analytics
 
         [Header("Лёгкий режим")]
         [Tooltip("Где работать в лёгком режиме: без диска и экспорта в файлы, маленькая очередь в памяти, " +
-                 "без адаптера события не пишутся вовсе. Для WebGL (файлы там живут в памяти страницы).")]
+                 "без адаптера события не пишутся вовсе. WebGL — всегда лёгкий (файлы там живут в памяти страницы); " +
+                 "настройка решает для остальных платформ.")]
         [SerializeField] private AnalyticsLeanMode leanMode = AnalyticsLeanMode.WebGL;
 
         [Tooltip("Лёгкий режим: максимум закрытых пакетов в памяти. Сверх — выбрасываются самые старые.")]
@@ -78,29 +79,52 @@ namespace Exerussus.AppCore.Analytics
         [SerializeField] private AnalyticsEventEntry[] entries = Array.Empty<AnalyticsEventEntry>();
 #pragma warning restore CS0649
 
+        // Жёсткие пределы. [Min]/[Range] работают только в инспекторе — правка YAML или мерж их обходят,
+        // поэтому каждое значение зажимается здесь: никакая настройка не даёт переполнения, огромного буфера
+        // или очереди без потолка.
+        public const int MaxPacketKilobytesCeiling = 512;
+        public const int MaxQueuedKilobytesCeiling = 64 * 1024;
+        public const int LeanMaxQueuedKilobytesCeiling = 4 * 1024;
+        public const int MaxQueuedPacketsCeiling = 10000;
+        public const int LeanMaxQueuedPacketsCeiling = 64;
+
         public bool Enabled => enabled && !(disableInBatchMode && Application.isBatchMode);
         public bool CollectByDefault => collectByDefault;
         public bool DiscardQueueOnDisable => discardQueueOnDisable;
-        public int MaxEventsPerPacket => Mathf.Max(1, maxEventsPerPacket);
-        public float MaxPacketAge => Mathf.Max(1f, maxPacketAge);
-        public int MaxQueuedPackets => Mathf.Max(1, maxQueuedPackets);
-        public long MaxQueuedBytes => Math.Max(16, maxQueuedKilobytes) * 1024L;
-        public float DeliveryLease => Mathf.Max(1f, deliveryLease);
-        public float RetryBase => Mathf.Max(0.1f, retryBase);
-        public float RetryMax => Mathf.Max(RetryBase, retryMax);
-        public int MaxInFlight => Mathf.Clamp(maxInFlight, 1, 16);
+        public int MaxEventsPerPacket => Clamp(maxEventsPerPacket, 1, 100000);
+        public float MaxPacketAge => Clamp(maxPacketAge, 1f, 3600f, 30f);
+        public int MaxQueuedPackets => Clamp(maxQueuedPackets, 1, MaxQueuedPacketsCeiling);
+        public long MaxQueuedBytes => Clamp(maxQueuedKilobytes, 16, MaxQueuedKilobytesCeiling) * 1024L;
+        public float DeliveryLease => Clamp(deliveryLease, 1f, 3600f, 60f);
+        public float RetryBase => Clamp(retryBase, 0.1f, 3600f, 5f);
+        public float RetryMax => Clamp(retryMax, RetryBase, 86400f, 300f);
+        public int MaxInFlight => Clamp(maxInFlight, 1, 16);
         /// <summary>Экспорт в файлы по умолчанию — только редактор и development-сборки: в релизе папка росла бы без конца.</summary>
         public bool ExportToFilesByDefault => exportToFilesByDefault && (Application.isEditor || Debug.isDebugBuild);
-        public int MaxPacketChars => Math.Max(4, maxPacketKilobytes) * 512;
+        /// <summary>Размер пакета в символах (UTF-16): 4–512 КБ памяти. На проводе (UTF-8) — до вдвое меньше для латиницы.</summary>
+        public int MaxPacketChars => Clamp(maxPacketKilobytes, 4, MaxPacketKilobytesCeiling) * 512;
         public AnalyticsLeanMode LeanMode => leanMode;
-        public int LeanMaxQueuedPackets => Mathf.Max(1, leanMaxQueuedPackets);
-        public long LeanMaxQueuedBytes => Math.Max(16, leanMaxQueuedKilobytes) * 1024L;
+        /// <summary>Лёгкая очередь: не меньше пакетов в полёте + 2 (иначе медленная сеть вытесняла бы каждый новый).</summary>
+        public int LeanMaxQueuedPackets => Math.Min(LeanMaxQueuedPacketsCeiling, Math.Max(Clamp(leanMaxQueuedPackets, 1, LeanMaxQueuedPacketsCeiling), MaxInFlight + 2));
+        /// <summary>Лёгкая очередь, байт: не меньше трёх пакетов, не больше 4 МБ.</summary>
+        public long LeanMaxQueuedBytes => Math.Min(LeanMaxQueuedKilobytesCeiling * 1024L,
+                                                   Math.Max(Clamp(leanMaxQueuedKilobytes, 16, LeanMaxQueuedKilobytesCeiling) * 1024L, 3L * MaxPacketChars * sizeof(char)));
 
-        /// <summary>Лёгкий режим на этой платформе.</summary>
-        public bool IsLeanOn(RuntimePlatform platform) => leanMode switch
+        private static int Clamp(int v, int min, int max) => v < min ? min : v > max ? max : v;
+
+        private static float Clamp(float v, float min, float max, float fallback)
+        {
+            if (float.IsNaN(v) || float.IsInfinity(v)) return fallback;
+            return v < min ? min : v > max ? max : v;
+        }
+
+        /// <summary>
+        /// Лёгкий режим на этой платформе. WebGL — всегда: файлы там живут в памяти страницы (MEMFS без syncfs),
+        /// полный режим с диском на WebGL не поддерживается.
+        /// </summary>
+        public bool IsLeanOn(RuntimePlatform platform) => platform == RuntimePlatform.WebGLPlayer || leanMode switch
         {
             AnalyticsLeanMode.Always => true,
-            AnalyticsLeanMode.WebGL => platform == RuntimePlatform.WebGLPlayer,
             _ => false,
         };
 

@@ -93,6 +93,37 @@ namespace Exerussus.AppCore.Analytics.Editor
             foreach (var issue in AnalyticsCatalog.Validate(settings.Entries))
                 if (issue.Level == AnalyticsCatalog.IssueLevel.Error)
                     throw new BuildFailedException($"[AppAnalytics] {issue.Key}: {issue.Text}");
+
+            WarnOutOfRange(settings);
+        }
+
+        /// <summary>
+        /// Значения вне пределов (правка YAML, мерж) — предупреждение: в рантайме они всё равно зажимаются
+        /// (AnalyticsSettings), но настройка в ассете не совпадает с тем, что будет в игре.
+        /// </summary>
+        private static void WarnOutOfRange(AnalyticsSettings settings)
+        {
+            var so = new SerializedObject(settings);
+            void Check(string name, float min, float max)
+            {
+                var p = so.FindProperty(name);
+                if (p == null) return;
+                var v = p.propertyType == SerializedPropertyType.Float ? p.floatValue : p.intValue;
+                if (float.IsNaN(v) || v < min || v > max)
+                    Debug.LogWarning($"[AppAnalytics] Настройка {name} = {v} вне [{min}; {max}] — в игре будет зажата.", settings);
+            }
+
+            Check("maxPacketKilobytes", 4, AnalyticsSettings.MaxPacketKilobytesCeiling);
+            Check("maxQueuedKilobytes", 16, AnalyticsSettings.MaxQueuedKilobytesCeiling);
+            Check("leanMaxQueuedKilobytes", 16, AnalyticsSettings.LeanMaxQueuedKilobytesCeiling);
+            Check("maxQueuedPackets", 1, AnalyticsSettings.MaxQueuedPacketsCeiling);
+            Check("leanMaxQueuedPackets", 1, AnalyticsSettings.LeanMaxQueuedPacketsCeiling);
+            Check("maxEventsPerPacket", 1, 100000);
+            Check("maxPacketAge", 1, 3600);
+            Check("deliveryLease", 1, 3600);
+            Check("retryBase", 0.1f, 3600);
+            Check("retryMax", 0.1f, 86400);
+            Check("maxInFlight", 1, 16);
         }
     }
 
