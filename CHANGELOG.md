@@ -3,6 +3,35 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [4.7.0]
+
+### Добавлено
+
+- Аналитика приложения (`Exerussus.AppCore.Analytics`, своя сборка), выключаемая галочкой в настройках.
+  - `AnalyticsSettings` (`Assets/App/Settings/AnalyticsSettings.asset`, Preloaded Assets): каталог событий по
+    ключам-путям (`Game.Module.Focus`, до 5 уровней, первый уровень `app` — системный), типизированные поля
+    (Int / Float / Bool / String), лимиты пакета и очереди, ретраи, сбор по умолчанию.
+  - Ключи `Assets/App/Generated/AppEvents.cs`: вложенные классы по уровням, у события `Id`, `Key` и
+    типизированный `Raise(...)`. Генерируются при каждом изменении каталога.
+  - Профиль игрока `player_<guid>` создаётся при первом запуске (PlayerPrefs), `AppAnalytics.NewProfile()`;
+    сбор вкл/выкл с сохранением — `AppAnalytics.SetCollecting`, события `ProfileChanged` / `CollectingChanged`.
+  - Сессия, прогоны (`BeginRun` / `EndRun`), игровые часы (`SetGameClock`); системные события
+    `app.session.*`, `app.run.*`, `app.focus.lost` / `app.focus.gained` (поле `away` — секунды вне фокуса), `app.profile.new`, `app.analytics.*`.
+  - Пакеты JSONL с id: буфер в памяти → закрытие по размеру, возрасту, смене профиля/сессии/прогона, паузе и
+    выходу → надёжная очередь на диске (`IAnalyticsStore`, по умолчанию `FileAnalyticsStore`) → адаптер
+    (`IAnalyticsAdapter`, по умолчанию `FileExportAdapter` в `persistentDataPath/AppAnalytics/Export`) →
+    подтверждение `Complete(id)` / `Fail(id)`. Аренда доставки, экспоненциальный ретрай, вытеснение старых
+    пакетов с маркером `app.analytics.dropped`. Без потоков — работает на десктопе, WebGL и Android.
+  - Без аллокаций при записи: открытый пакет — буфер фиксированного размера (`maxPacketKilobytes`), выделенный
+    один раз при старте; числа пишутся без `ToString`. Единственная аллокация — строка закрытого пакета.
+  - Лёгкий режим (по умолчанию в WebGL, `leanMode`): без диска и экспорта в файлы, очередь в памяти
+    (`leanMaxQueuedPackets`, `leanMaxQueuedKilobytes`), без назначенного адаптера события не пишутся вовсе.
+  - Ошибка внутри модуля не уходит в игру: пишется в лог, модуль выключается до конца запуска.
+  - Команды консоли AppDeck: `analytics.on`, `analytics.off`, `analytics.status`, `analytics.flush`,
+    `profile.new`, `profile.show`.
+  - Редактор (`Exerussus.AppCore.Analytics.Editor`): проверка ключей и полей, генерация, меню
+    `Exerussus/App/Analytics`; перед сборкой — Preloaded Assets, отсортированный каталог без ошибок.
+
 ## [4.6.0]
 
 ### Добавлено

@@ -1,0 +1,17 @@
+{
+    "name": "Exerussus.AppCore.Analytics",
+    "rootNamespace": "Exerussus.AppCore.Analytics",
+    "references": [
+        "Exerussus.AppCore",
+        "Exerussus.AppCore.Deck"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
