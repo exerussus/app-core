@@ -37,6 +37,7 @@ namespace Exerussus.AppCore.Analytics
         private static bool _collecting;
         private static bool _lean;
         private static bool _faulted;
+        private static bool _flushing;
 
         private static string[] _keys = Array.Empty<string>();
         private static bool[] _eventOn = Array.Empty<bool>();
@@ -202,31 +203,51 @@ namespace Exerussus.AppCore.Analytics
         public static AnalyticsEventWriter Begin(int id)
         {
             if (!CanWrite || (uint)id >= (uint)_keys.Length || !_eventOn[id]) return default;
-            StartEvent(_keys[id]);
+
+            try
+            {
+                StartEvent(_keys[id]);
+            }
+            catch (Exception e)
+            {
+                Fault(e);
+                return default;
+            }
+
             return _inEvent ? new AnalyticsEventWriter(true) : default;
         }
 
         /// <summary>Закрыть пакет сейчас и дать адаптеру знать причину.</summary>
         public static void Flush(AnalyticsFlushReason reason = AnalyticsFlushReason.Manual)
         {
-            if (!_booted) return;
-            Seal();
-            if (!_booted) return;
+            // адаптер позвал Flush из OnFlush/Deliver — не уходить в рекурсию
+            if (!_booted || _flushing) return;
 
-            var adapter = Adapter();
-            if (adapter != null)
+            _flushing = true;
+            try
             {
-                try
-                {
-                    adapter.OnFlush(reason);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogException(e);
-                }
-            }
+                Seal();
+                if (!_booted) return;
 
-            Pump(force: true);
+                var adapter = Adapter();
+                if (adapter != null)
+                {
+                    try
+                    {
+                        adapter.OnFlush(reason);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
+                }
+
+                Pump(force: true);
+            }
+            finally
+            {
+                _flushing = false;
+            }
         }
 
         // ---------------------------------------------------------------- отказ
@@ -277,7 +298,17 @@ namespace Exerussus.AppCore.Analytics
         private static bool BeginSystem(string key)
         {
             if (!CanWrite) return false;
-            StartEvent(key);
+
+            try
+            {
+                StartEvent(key);
+            }
+            catch (Exception e)
+            {
+                Fault(e);
+                return false;
+            }
+
             return _inEvent;
         }
 
@@ -289,6 +320,7 @@ namespace Exerussus.AppCore.Analytics
         private static void StartEvent(string key)
         {
             if (_inEvent) EndEvent();
+            if (_chars.Length == 0) AllocateBuffer(_settings); // лениво: модуль, который не пишет, не держит буфер
             if (_len >= _softLimit) Seal();
             if (!_booted) return; // Seal мог выключить модуль ошибкой
             EnsureHeader();
@@ -358,6 +390,19 @@ namespace Exerussus.AppCore.Analytics
         internal static void EndEvent()
         {
             if (!_inEvent) return;
+
+            try
+            {
+                EndEventCore();
+            }
+            catch (Exception e)
+            {
+                Fault(e);
+            }
+        }
+
+        private static void EndEventCore()
+        {
             _inEvent = false;
 
             Put("}\n");
@@ -488,9 +533,7 @@ namespace Exerussus.AppCore.Analytics
         private static void PutName(string name)
         {
             Put(',');
-            Put('"');
-            Put(name);
-            Put('"');
+            PutString(name ?? string.Empty);
             Put(':');
         }
 
@@ -528,7 +571,7 @@ namespace Exerussus.AppCore.Analytics
             _len = end;
         }
 
-        /// <summary>Дробное с точностью до тысячных (мс для секунд), без ToString. NaN/∞ — <c>null</c>.</summary>
+        /// <summary>Дробное с точностью до тысячных (мс для секунд), без ToString. NaN/∞ и |x| ≥ 9e12 — <c>null</c>.</summary>
         private static void PutNumber(double value)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
@@ -537,9 +580,10 @@ namespace Exerussus.AppCore.Analytics
                 return;
             }
 
-            if (value >= 9e12 || value <= -9e12)
+            // за пределами — «null»: (long) от слишком большого double не определён (в WASM может упасть)
+            if (!(Math.Abs(value) < 9e12))
             {
-                PutLong((long)Math.Round(value));
+                Put("null");
                 return;
             }
 

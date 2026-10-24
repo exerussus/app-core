@@ -21,7 +21,11 @@ namespace Exerussus.AppCore.Analytics.Editor
             {
                 if (EditorApplication.isPlayingOrWillChangePlaymode) return;
                 var settings = Ensure(false);
-                if (settings != null) AnalyticsCatalog.Generate(AnalyticsCatalog.Sorted(settings.Entries));
+                if (settings == null) return;
+
+                // порядок в ассете = Id в рантайме: несортированный каталог сначала записать отсортированным
+                if (!AnalyticsCatalog.IsSorted(settings.Entries)) AnalyticsCatalog.Commit(settings, settings.Entries, "Сортировка каталога аналитики");
+                else AnalyticsCatalog.Generate(settings.Entries);
             };
         }
 

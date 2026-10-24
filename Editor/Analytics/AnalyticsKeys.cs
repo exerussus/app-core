@@ -20,7 +20,7 @@ namespace Exerussus.AppCore.Analytics.Editor
         private static readonly HashSet<string> ReservedMembers = new(StringComparer.Ordinal) { "Id", "Key", "Raise", "Count" };
 
         /// <summary>Имена полей, занятые служебными ключами строки события.</summary>
-        private static readonly HashSet<string> ReservedFields = new(StringComparer.Ordinal) { "s", "t", "g", "e", "type", "__w" };
+        private static readonly HashSet<string> ReservedFields = new(StringComparer.Ordinal) { "s", "t", "g", "e", "type", "__w", "Id", "Key" };
 
         private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
         {
@@ -157,7 +157,7 @@ namespace Exerussus.AppCore.Analytics.Editor
             sb.Append(")\n").Append(pad).Append("{\n");
 
             var body = pad + "    ";
-            sb.Append(body).Append("var __w = global::Exerussus.AppCore.Analytics.AppAnalytics.Begin(Id);\n");
+            sb.Append(body).Append("var __w = global::Exerussus.AppCore.Analytics.AppAnalytics.Begin(").Append(node.Index).Append(");\n");
             if (fields.Count > 0)
             {
                 sb.Append(body).Append("if (!__w.Active) return;\n");
@@ -185,7 +185,10 @@ namespace Exerussus.AppCore.Analytics.Editor
             return Escape(text);
         }
 
-        private static string Escape(string text) => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        /// <summary>Текст для XML-доки в одну строку: перевод строки начал бы строку без «///» и сломал компиляцию.</summary>
+        private static string Escape(string text) =>
+            (text ?? string.Empty).Replace("\r", " ").Replace("\n", " ")
+                                  .Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
         private sealed class Node
         {

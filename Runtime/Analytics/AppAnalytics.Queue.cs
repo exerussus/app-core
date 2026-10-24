@@ -16,6 +16,8 @@ namespace Exerussus.AppCore.Analytics
         private static double _deliverNotBefore;
         private static int _maxQueuedPackets;
         private static long _maxQueuedBytes;
+        private static bool _pumping;
+        private static bool _storeWarned;
 
         /// <summary>Пакетов в очереди (ждут доставки или у адаптера).</summary>
         public static int QueuedPackets => _queue.Count;
@@ -53,9 +55,54 @@ namespace Exerussus.AppCore.Analytics
 
             foreach (var packet in _queue)
             {
-                _store.Save(packet.Id, packet.Content);
-                previous?.Delete(packet.Id);
+                StoreSave(packet);
+                if (previous == null) continue;
+                try
+                {
+                    previous.Delete(packet.Id);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[AppAnalytics] Старое хранилище не удалило пакет {packet.Id}: {e.Message}");
+                }
             }
+        }
+
+        // ---------------------------------------------------------------- хранилище (ошибка — дальше без диска)
+
+        private static void StoreSave(AnalyticsPacket packet)
+        {
+            if (_store == null) return;
+            try
+            {
+                _store.Save(packet.Id, packet.Content);
+            }
+            catch (Exception e)
+            {
+                DropStore(e);
+            }
+        }
+
+        private static void StoreDelete(string packetId)
+        {
+            if (_store == null) return;
+            try
+            {
+                _store.Delete(packetId);
+            }
+            catch (Exception e)
+            {
+                DropStore(e);
+            }
+        }
+
+        /// <summary>Хранилище бросило исключение — работать дальше только в памяти.</summary>
+        private static void DropStore(Exception e)
+        {
+            _store = null;
+            if (_storeWarned) return;
+            _storeWarned = true;
+            Debug.LogWarning($"[AppAnalytics] Хранилище очереди отказало, дальше — только память: {e.Message}");
         }
 
         /// <summary>Пакет доставлен (сохранён/отправлен): удалить из очереди.</summary>
@@ -67,7 +114,7 @@ namespace Exerussus.AppCore.Analytics
             var packet = _queue[index];
             _queue.RemoveAt(index);
             _queuedBytes -= packet.Bytes;
-            _store?.Delete(packetId);
+            StoreDelete(packetId);
         }
 
         /// <summary>
@@ -78,6 +125,8 @@ namespace Exerussus.AppCore.Analytics
         {
             var index = IndexOf(packetId);
             if (index < 0) return;
+
+            if (double.IsNaN(retryAfterSeconds) || double.IsInfinity(retryAfterSeconds)) retryAfterSeconds = -1;
 
             var packet = _queue[index];
             packet.State = PacketState.Pending;
@@ -110,7 +159,7 @@ namespace Exerussus.AppCore.Analytics
                 _bufferPacketId = null;
                 _bufferEvents = 0;
 
-                _store?.Save(packet.Id, packet.Content);
+                StoreSave(packet);
                 _queue.Add(packet);
                 _queuedBytes += packet.Bytes;
                 EnforceLimits();
@@ -139,14 +188,14 @@ namespace Exerussus.AppCore.Analytics
                 var packet = _queue[oldest];
                 _queue.RemoveAt(oldest);
                 _queuedBytes -= packet.Bytes;
-                _store?.Delete(packet.Id);
+                StoreDelete(packet.Id);
                 _dropped += Math.Max(1, packet.EventCount);
             }
         }
 
         private static void ClearQueue()
         {
-            foreach (var packet in _queue) _store?.Delete(packet.Id);
+            foreach (var packet in _queue) StoreDelete(packet.Id);
             _queue.Clear();
             _queuedBytes = 0;
         }
@@ -178,8 +227,9 @@ namespace Exerussus.AppCore.Analytics
 
         private static void Pump(bool force)
         {
-            if (!_booted) return;
+            if (!_booted || _pumping) return; // адаптер позвал Flush/Pump изнутри Deliver — не входить второй раз
 
+            _pumping = true;
             try
             {
                 PumpCore(force);
@@ -187,6 +237,10 @@ namespace Exerussus.AppCore.Analytics
             catch (Exception e)
             {
                 Fault(e);
+            }
+            finally
+            {
+                _pumping = false;
             }
         }
 

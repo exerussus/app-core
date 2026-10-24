@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.LowLevel;
 using UnityEngine.PlayerLoop;
@@ -13,13 +14,26 @@ namespace Exerussus.AppCore.Analytics
         private static bool _focusHooked;
         private static bool _flushOnFocusLoss;
         private static double _unfocusedAt = -1;
+        private static double _lastPauseFlush = double.NegativeInfinity;
         private static GameObject _host;
+
+        /// <summary>Сброс по потере фокуса не чаще раза в столько секунд: мигание фокуса (клавиатура, оверлеи) не плодит пакеты.</summary>
+        private const double PauseFlushInterval = 5.0;
 
         // статика между запусками без перезагрузки домена — в ноль
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
         {
-            Shutdown(seal: true);
+            try
+            {
+                Shutdown(seal: false);
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                _booted = false;
+            }
+
             _faulted = false;
             _adapter = null;
             _defaultAdapter = false;
@@ -49,8 +63,7 @@ namespace Exerussus.AppCore.Analytics
             _settings = settings;
             _lean = settings.IsLeanOn(Application.platform);
             Bake(settings);
-            AllocateBuffer(settings);
-            CacheHeaderStrings();
+            CacheHeaderStrings(); // буфер пакета — лениво, на первом событии
 
             if (_lean)
             {
@@ -102,7 +115,14 @@ namespace Exerussus.AppCore.Analytics
                 }
 
                 _flushOnFocusLoss = Application.platform == RuntimePlatform.WebGLPlayer || Application.isMobilePlatform;
-                _unfocusedAt = Application.isFocused ? -1 : Now();
+                // на старте isFocused часто ещё false — не считать это уходом из приложения
+                _unfocusedAt = -1;
+                _lastPauseFlush = double.NegativeInfinity;
+
+#if UNITY_EDITOR
+                UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+                UnityEditor.EditorApplication.playModeStateChanged += OnPlayModeChanged;
+#endif
             }
 
             _booted = true;
@@ -179,13 +199,29 @@ namespace Exerussus.AppCore.Analytics
         {
             _queue.Clear();
             _queuedBytes = 0;
-            foreach (var pair in _store.LoadAll())
+            if (_store == null) return;
+
+            System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, string>> stored;
+            try
             {
-                if (IndexOf(pair.Key) >= 0) continue;
+                stored = _store.LoadAll();
+            }
+            catch (Exception e)
+            {
+                DropStore(e);
+                return;
+            }
+
+            foreach (var pair in stored)
+            {
+                if (string.IsNullOrEmpty(pair.Key) || pair.Value == null || IndexOf(pair.Key) >= 0) continue;
                 var packet = new AnalyticsPacket(pair.Key, pair.Value, -1);
                 _queue.Add(packet);
                 _queuedBytes += packet.Bytes;
             }
+
+            // старые пакеты сверх лимитов (лимит уменьшили, удаление не прошло) — выбросить самые старые
+            EnforceLimits();
         }
 
         // ---------------------------------------------------------------- последний шанс
@@ -231,7 +267,7 @@ namespace Exerussus.AppCore.Analytics
                 WriteSystem("app.focus.lost");
 
                 // WebGL и мобильные: потеря фокуса — вкладку скрыли / ушли в фон, могут не вернуться.
-                if (_flushOnFocusLoss) Flush(AnalyticsFlushReason.Pause);
+                if (_flushOnFocusLoss) PauseFlush();
                 return;
             }
 
@@ -246,10 +282,10 @@ namespace Exerussus.AppCore.Analytics
 
         internal static void OnApplicationPause(bool paused)
         {
-            if (!paused) return;
+            if (!paused || !_booted) return;
             try
             {
-                Flush(AnalyticsFlushReason.Pause);
+                PauseFlush();
             }
             catch (Exception e)
             {
@@ -257,13 +293,81 @@ namespace Exerussus.AppCore.Analytics
             }
         }
 
+        /// <summary>Страница WebGL скрыта (visibilitychange / pagehide из jslib) или снова видна.</summary>
+        internal static void OnPageVisibility(bool visible)
+        {
+            OnFocusChanged(visible);
+        }
+
+        private static void PauseFlush()
+        {
+            var now = Now();
+            if (now - _lastPauseFlush < PauseFlushInterval) return;
+            _lastPauseFlush = now;
+            Flush(AnalyticsFlushReason.Pause);
+        }
+
+        private const string HostName = "[AppAnalytics]";
+
         private static void CreateHost()
         {
             if (_host != null) return;
-            _host = new GameObject("[AppAnalytics]") { hideFlags = HideFlags.HideAndDontSave };
+            // HideInHierarchy, не DontSave: такой объект Unity уничтожает при выходе из Play Mode
+            _host = new GameObject(HostName) { hideFlags = HideFlags.HideInHierarchy };
             UnityEngine.Object.DontDestroyOnLoad(_host);
             _host.AddComponent<AnalyticsHost>();
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                AppAnalytics_HookVisibility(OnVisibilityNative);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[AppAnalytics] Не удалось подписаться на видимость страницы: {e.Message}");
+            }
+#endif
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private delegate void VisibilityCallback(int visible);
+
+        // Plugins/WebGL/AppAnalytics.jslib: visibilitychange + pagehide → сюда (WebView в фоне не шлёт blur)
+        [DllImport("__Internal")]
+        private static extern void AppAnalytics_HookVisibility(VisibilityCallback callback);
+
+        [AOT.MonoPInvokeCallback(typeof(VisibilityCallback))]
+        private static void OnVisibilityNative(int visible)
+        {
+            try
+            {
+                OnPageVisibility(visible != 0);
+            }
+            catch
+            {
+                // из браузерного колбэка исключение не выпускать
+            }
+        }
+#endif
+
+#if UNITY_EDITOR
+        /// <summary>Выход из Play Mode без перезагрузки домена — модуль снимается целиком (цикл, буфер, очередь, подписки).</summary>
+        private static void OnPlayModeChanged(UnityEditor.PlayModeStateChange state)
+        {
+            if (state != UnityEditor.PlayModeStateChange.ExitingPlayMode) return;
+            UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+
+            try
+            {
+                Shutdown(seal: true);
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                _booted = false;
+            }
+        }
+#endif
 
         // ---------------------------------------------------------------- PlayerLoop
 
@@ -306,7 +410,15 @@ namespace Exerussus.AppCore.Analytics
 
                 if (add)
                 {
-                    if (existing >= 0) return false;
+                    if (existing >= 0)
+                    {
+                        // осталась система прошлого запуска — подменить делегат, а не ставить вторую
+                        systems[existing].updateDelegate = PumpTick;
+                        phases[p].subSystemList = systems;
+                        root.subSystemList = phases;
+                        return true;
+                    }
+
                     var next = new PlayerLoopSystem[systems.Length + 1];
                     Array.Copy(systems, next, systems.Length);
                     next[systems.Length] = new PlayerLoopSystem { type = typeof(AppAnalyticsPump), updateDelegate = PumpTick };

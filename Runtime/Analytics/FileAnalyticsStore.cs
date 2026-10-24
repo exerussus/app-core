@@ -56,7 +56,22 @@ namespace Exerussus.AppCore.Analytics
 
             try
             {
-                var files = new List<FileInfo>(new DirectoryInfo(_dir).GetFiles("*.jsonl"));
+                var dir = new DirectoryInfo(_dir);
+
+                // недописанные копии от падения посреди Save
+                foreach (var temp in dir.GetFiles("*.tmp"))
+                {
+                    try
+                    {
+                        temp.Delete();
+                    }
+                    catch
+                    {
+                        // занят — удалим в следующий запуск
+                    }
+                }
+
+                var files = new List<FileInfo>(dir.GetFiles("*.jsonl"));
                 files.Sort((a, b) => a.CreationTimeUtc.CompareTo(b.CreationTimeUtc));
                 foreach (var file in files)
                     result.Add(new KeyValuePair<string, string>(Path.GetFileNameWithoutExtension(file.Name), File.ReadAllText(file.FullName)));

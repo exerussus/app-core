@@ -72,7 +72,7 @@ namespace Exerussus.AppCore.Analytics
         [Range(1, 16)] [SerializeField] private int maxInFlight = 4;
 
         [Tooltip("Если проект не назначил свой адаптер — сохранять пакеты файлами в persistentDataPath/AppAnalytics/Export. " +
-                 "Выключено — пакеты ждут в очереди, пока адаптер не назначат.")]
+                 "Работает только в редакторе и development-сборках. Выключено — пакеты ждут в очереди, пока адаптер не назначат.")]
         [SerializeField] private bool exportToFilesByDefault = true;
 
         [SerializeField] private AnalyticsEventEntry[] entries = Array.Empty<AnalyticsEventEntry>();
@@ -89,7 +89,8 @@ namespace Exerussus.AppCore.Analytics
         public float RetryBase => Mathf.Max(0.1f, retryBase);
         public float RetryMax => Mathf.Max(RetryBase, retryMax);
         public int MaxInFlight => Mathf.Clamp(maxInFlight, 1, 16);
-        public bool ExportToFilesByDefault => exportToFilesByDefault;
+        /// <summary>Экспорт в файлы по умолчанию — только редактор и development-сборки: в релизе папка росла бы без конца.</summary>
+        public bool ExportToFilesByDefault => exportToFilesByDefault && (Application.isEditor || Debug.isDebugBuild);
         public int MaxPacketChars => Math.Max(4, maxPacketKilobytes) * 512;
         public AnalyticsLeanMode LeanMode => leanMode;
         public int LeanMaxQueuedPackets => Mathf.Max(1, leanMaxQueuedPackets);
