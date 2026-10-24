@@ -49,10 +49,12 @@ tr.sel td{background:#0F2730}
 .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--dim)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 .cols{display:flex;align-items:flex-end;gap:10px;height:200px;border-bottom:1px solid var(--line);padding:0 4px}
-.cols .c{flex:1 1 0;display:flex;flex-direction:column-reverse;gap:2px;height:100%;min-width:6px}
+.cols .c{flex:1 1 0;display:flex;flex-direction:column-reverse;gap:2px;height:100%;min-width:6px;max-width:64px}
 .cols .c span{display:block;border-radius:2px}
-.xlabels{display:flex;gap:10px;padding:0 4px}.xlabels span{flex:1 1 0;text-align:center;font:11px var(--mono);color:var(--faint);overflow:hidden;white-space:nowrap}
-.funnel{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(110px,1fr);gap:10px;overflow-x:auto;padding-bottom:4px}
+.xlabels{display:flex;gap:10px;padding:0 4px}.xlabels span{flex:1 1 0;max-width:64px;text-align:center;font:11px var(--mono);color:var(--faint);overflow:hidden;white-space:nowrap}
+.split{display:flex;flex-direction:column;gap:6px}.split .t{display:flex;justify-content:space-between;gap:10px;font-size:13px}
+.split .b{height:8px;background:var(--line2);border-radius:4px;overflow:hidden}.split .b span{display:block;height:100%;border-radius:4px}
+.funnel{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(110px,180px);gap:10px;overflow-x:auto;padding-bottom:4px}
 .funnel .st{display:flex;flex-direction:column;gap:6px}
 .funnel .tube{height:140px;display:flex;flex-direction:column;justify-content:flex-end;background:var(--inset);border-radius:6px;overflow:hidden}
 .funnel .tube span{display:block;background:#1E6F80;border-top:2px solid var(--accent)}
@@ -265,7 +267,7 @@ var D = /*__REPORT_DATA__*/null;
       [first ? rname(first) : "Итог", first ? pct(resultCount[first], runs.length) + "%" : "—", main.slice(1, 3).map(function (r) { return rname(r) + " " + pct(resultCount[r], runs.length) + "%"; }).join(", ")],
       ["Медиана прогона", dur(median(finished.map(function (r) { return r.duration; }))), "реальное время"],
       ["Игровое время", dur(median(runs.map(function (r) { return r.game; }))), "медиана"],
-      ["Вне фокуса", timeRun ? pct(awayRun, timeRun) + "%" : "—", "времени прогонов"]
+      focusKpi(runs.map(function (r, i) { return i; }))
     ];
 
     // прогоны по дням
@@ -285,9 +287,74 @@ var D = /*__REPORT_DATA__*/null;
     return [
       kpis(top),
       el("div", { class: "row" },
-        (function () { var c = card("Прогоны по дням", legend(results), days.length ? [cols, labels] : el("div", { class: "empty", text: "Нет прогонов" })); c.classList.add("grow"); return c; })()),
+        (function () { var c = card("Прогоны по дням", legend(results), days.length ? [cols, labels] : el("div", { class: "empty", text: "Нет прогонов" })); c.classList.add("grow"); return c; })(),
+        timeSplit(runs.map(function (r, i) { return i; }))),
       card("Теги прогонов", el("span", { class: "muted", text: "тег — то, что передано в BeginRun (сценарий, уровень)" }), tagsTable())
     ];
+  }
+
+  // ------------------------------------------------------------ куда уходит время прогона
+  function runAxisEnd(i) {
+    var end = 0;
+    (eventsByRun[i] || []).forEach(function (e) { var a = e.g != null ? e.g : e.t; if (a > end) end = a; });
+    (intervalsByRun[i] || []).forEach(function (v) { if (v.end > end) end = v.end; });
+    return end;
+  }
+  // главный интервал отчёта: «focus», если есть в каталоге, иначе первый интервал
+  function focusInterval() {
+    var names = (D.catalog || []).filter(function (x) { return x.role === "begin" && x.interval; }).map(function (x) { return x.interval; });
+    return names.indexOf("focus") >= 0 ? "focus" : names[0];
+  }
+  function focusShare(indices) {
+    var name = focusInterval(), total = 0, sum = 0;
+    if (!name) return NaN;
+    indices.forEach(function (i) {
+      total += runAxisEnd(i);
+      (intervalsByRun[i] || []).forEach(function (v) { if (v.name === name) sum += Math.max(0, v.end - v.start); });
+    });
+    return total ? sum / total : NaN;
+  }
+  function focusKpi(indices) {
+    var name = focusInterval(), share = focusShare(indices);
+    return [name ? beginTitle(name) : "Фокус", isNaN(share) ? "—" : Math.round(share * 100) + "%", name ? "доля времени прогона" : "нет интервалов в каталоге"];
+  }
+  function beginTitle(name) {
+    var c = (D.catalog || []).filter(function (x) { return x.role === "begin" && x.interval === name; })[0];
+    return c && c.title ? c.title : name;
+  }
+  function timeSplit(indices) {
+    var total = 0, byInterval = {}, byState = {}, away = 0, real = 0;
+    indices.forEach(function (i) {
+      var r = runs[i], end = runAxisEnd(i);
+      total += end;
+      away += r.away || 0;
+      real += r.duration || 0;
+      (intervalsByRun[i] || []).forEach(function (v) { byInterval[v.name] = (byInterval[v.name] || 0) + Math.max(0, v.end - v.start); });
+      // логические состояния: время, пока true
+      var on = {};
+      (eventsByRun[i] || []).slice().sort(function (a, b) { return a.s - b.s; }).forEach(function (e) {
+        var c = catalog[e.key];
+        if (!c || c.role !== "state" || !c.value || typeof e.f[c.value] !== "boolean") return;
+        var a = e.g != null ? e.g : e.t;
+        if (e.f[c.value] && on[e.key] == null) on[e.key] = a;
+        else if (!e.f[c.value] && on[e.key] != null) { byState[e.key] = (byState[e.key] || 0) + a - on[e.key]; on[e.key] = null; }
+      });
+      for (var k in on) if (on[k] != null) byState[k] = (byState[k] || 0) + Math.max(0, end - on[k]);
+    });
+    var rows = [];
+    var colors = ["#2BA3BA", "#4E8FA0", "#9A8BD6", "#6E9DAA"];
+    Object.keys(byInterval).forEach(function (n, i) { rows.push({ label: beginTitle(n), hint: n, sec: byInterval[n], share: total ? byInterval[n] / total : 0, color: colors[i % colors.length] }); });
+    Object.keys(byState).forEach(function (k) { var c = catalog[k]; rows.push({ label: c && c.title ? c.title : k, hint: k, sec: byState[k], share: total ? byState[k] / total : 0, color: "#3A4B57" }); });
+    var n = Math.max(1, indices.length);
+    var body = rows.map(function (r) {
+      return el("div", { class: "split", title: r.hint },
+        el("div", { class: "t" }, el("span", { text: r.label }), el("span", { class: "mono dim", text: dur(r.sec / n) + " · " + Math.round(r.share * 100) + "%" })),
+        el("div", { class: "b" }, el("span", { style: "width:" + Math.min(100, r.share * 100) + "%;background:" + r.color })));
+    });
+    var c = card("Где уходит время", el("span", { class: "muted", text: "в среднем за прогон · доля оси прогона" }), body,
+      el("span", { class: "muted", style: "font-size:12px", text: "Интервалы считаются по всем субъектам: два открытых сразу дают больше 100%." }));
+    c.classList.add("side");
+    return c;
   }
 
   function tagsTable() {
@@ -305,12 +372,12 @@ var D = /*__REPORT_DATA__*/null;
           { text: dur(median(list.map(function (r) { return r.duration; }))), sort: median(list.map(function (r) { return r.duration; })) },
           { text: dur(median(list.map(function (r) { return r.game; }))), sort: median(list.map(function (r) { return r.game; })) },
           list.length ? neg / list.length : NaN,
-          { text: time ? pct(away, time) + "%" : "—", sort: time ? away / time : 0 }
+          (function () { var f = focusShare(t.runs); return { text: isNaN(f) ? "—" : Math.round(f * 100) + "%", sort: isNaN(f) ? -1 : f }; })()
         ]
       };
     });
     if (!rows.length) return el("div", { class: "empty", text: "Нет прогонов" });
-    return table([{ title: "Тег" }, { title: "Прогонов", num: true, digits: 0 }, { title: "Итоги" }, { title: "Медиана", num: true }, { title: "Игровое", num: true }, { title: "Неудач / прогон", num: true }, { title: "Вне фокуса", num: true }], rows, { sort: 1 });
+    return table([{ title: "Тег" }, { title: "Прогонов", num: true, digits: 0 }, { title: "Итоги" }, { title: "Медиана", num: true }, { title: "Игровое", num: true }, { title: "Неудач / прогон", num: true }, { title: focusInterval() ? beginTitle(focusInterval()) : "Фокус", num: true }], rows, { sort: 1 });
   }
 
   // ------------------------------------------------------------ Тег
@@ -334,6 +401,7 @@ var D = /*__REPORT_DATA__*/null;
       ["Медиана прогона", dur(median(finished.map(function (r) { return r.duration; }))), "p90 — " + dur(quant(finished.map(function (r) { return r.duration; }), 0.9))],
       ["Игровое время", dur(median(list.map(function (r) { return r.game; }))), "медиана"],
       ["Неудач", list.length ? num(neg / list.length) : "—", "меток «неудача» на прогон"],
+      focusKpi(t.runs),
       ["Не завершено", pct(t.results.unfinished || 0, list.length) + "%", "без app.run.end"]
     ]);
 
@@ -352,7 +420,8 @@ var D = /*__REPORT_DATA__*/null;
     });
 
     var tables = t.tables.map(function (tb) {
-      var cols = tb.columns.map(function (c, i) { return { title: c, num: i > 0 }; });
+      var labels = tb.labels || tb.columns;
+      var cols = labels.map(function (c, i) { return { title: c, num: i > 0 }; });
       var rows = tb.rows.map(function (r) { return { cells: r.map(function (v, i) { return i === 0 ? { text: v, node: el("span", { class: "mono", text: v }) } : v; }) }; });
       return card("По " + tb.title, el("span", { class: "muted", text: "интервалы — секунды оси прогона (игровое время, если есть)" }), table(cols, rows, { sort: 1 }));
     });
@@ -367,7 +436,7 @@ var D = /*__REPORT_DATA__*/null;
       };
     });
 
-    return [head, top].concat(funnels, tables, [card("Прогоны", null, table([{ title: "Начало" }, { title: "Профиль" }, { title: "Итог" }, { title: "Длительность", num: true }, { title: "Игровое", num: true }, { title: "Неудач", num: true, digits: 0 }, { title: "Событий", num: true, digits: 0 }], runRows, { sort: 0 }))]);
+    return [head, top, el("div", { class: "row" }, timeSplit(t.runs))].concat(funnels, tables, [card("Прогоны", null, table([{ title: "Начало" }, { title: "Профиль" }, { title: "Итог" }, { title: "Длительность", num: true }, { title: "Игровое", num: true }, { title: "Неудач", num: true, digits: 0 }, { title: "Событий", num: true, digits: 0 }], runRows, { sort: 0 }))]);
   }
 
   // ------------------------------------------------------------ Прогоны
@@ -409,12 +478,6 @@ var D = /*__REPORT_DATA__*/null;
     var lanes = [], laneBy = {};
     function lane(id, name) { if (!laneBy[id]) { laneBy[id] = { name: name, spans: [], marks: [] }; lanes.push(laneBy[id]); } return laneBy[id]; }
 
-    var lostAt = null;
-    evs.forEach(function (e) {
-      if (e.key === "app.focus.lost") lostAt = axis(e);
-      else if (e.key === "app.focus.gained" && lostAt != null) { lane("app", "приложение").spans.push({ a: lostAt, b: axis(e), cls: "away", title: "вне фокуса " + dur(e.f.away) }); lostAt = null; }
-    });
-    if (lostAt != null) lane("app", "приложение").spans.push({ a: lostAt, b: end, cls: "away", title: "вне фокуса до конца" });
 
     // логические состояния — полосы, пока true
     var stateOn = {};
@@ -461,7 +524,6 @@ var D = /*__REPORT_DATA__*/null;
     intervalNames.forEach(function (n, i) { legendItems.push(el("span", null, el("i", { class: "", style: i === 0 ? "background:#15333C;border:1px solid #2BA3BA" : "background:" + ["#2BA3BA", "#2BA3BA", "#6E9DAA", "#9A8BD6"][Math.min(3, i)] }), n)); });
     legendItems.push(el("span", null, el("i", { style: "background:#D3E4EC;width:2px" }), "удача"));
     legendItems.push(el("span", null, el("i", { style: "background:#E8A33D;width:3px" }), "неудача"));
-    legendItems.push(el("span", null, el("i", { style: "background:#6B4A1C" }), "вне фокуса"));
 
     // журнал
     var showSys = el("input", { type: "checkbox" }), showRole = el("input", { type: "checkbox", checked: true }), showOther = el("input", { type: "checkbox", checked: true });

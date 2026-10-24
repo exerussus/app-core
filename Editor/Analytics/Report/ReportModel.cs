@@ -132,8 +132,17 @@ namespace Exerussus.AppCore.Analytics.Reports
     {
         public string Id;
         public string Title;
+        /// <summary>Машинные имена колонок (CSV, JSON).</summary>
         public readonly List<string> Columns = new List<string>();
+        /// <summary>Подписи для людей (report.html); пусто — как Columns.</summary>
+        public readonly List<string> Labels = new List<string>();
         public readonly List<JsonValue[]> Rows = new List<JsonValue[]>();
+
+        public void Add(string column, string label)
+        {
+            Columns.Add(column);
+            Labels.Add(label ?? column);
+        }
     }
 
     /// <summary>Воронка: субъекты интервала по порядку первого начала, сколько прогонов дошло и закрыло.</summary>

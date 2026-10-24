@@ -581,26 +581,34 @@ namespace Exerussus.AppCore.Analytics.Reports
                     intervals.Add(info.Interval);
 
             var table = new ReportTable { Id = "subjects_" + field, Title = field };
-            table.Columns.Add(field);
-            table.Columns.Add("прогонов");
+            table.Add(field, field);
+            table.Add("runs", "Прогонов");
 
+            // машинные имена — для CSV, подписи — из каталога (название события, окраска метки)
             var shortNames = ShortNames(events);
             foreach (var info in events)
             {
-                if (info.Role != ReportRole.End) table.Columns.Add(shortNames[info.Key]);
+                var id = shortNames[info.Key];
+                var title = string.IsNullOrWhiteSpace(info.Title) ? id : info.Title.Trim();
+                if (info.Role != ReportRole.End)
+                {
+                    var mark = info.Tone == ReportTone.Positive ? "✓ " : info.Tone == ReportTone.Negative ? "✗ " : string.Empty;
+                    table.Add(id + "_count", mark + title);
+                }
+
                 if (!string.IsNullOrEmpty(info.Measure))
                 {
-                    table.Columns.Add(shortNames[info.Key] + "." + info.Measure + " медиана");
-                    table.Columns.Add(shortNames[info.Key] + "." + info.Measure + " p90");
+                    table.Add(id + "_" + info.Measure + "_median", info.Measure + ", медиана");
+                    table.Add(id + "_" + info.Measure + "_p90", info.Measure + ", p90");
                 }
             }
 
             foreach (var name in intervals)
             {
-                table.Columns.Add(name + ": число");
-                table.Columns.Add(name + ": закрыто");
-                table.Columns.Add(name + ": медиана, с");
-                table.Columns.Add(name + ": на прогон, с");
+                table.Add(name + "_count", name + ": заходов");
+                table.Add(name + "_closed", name + ": закрыто");
+                table.Add(name + "_median", name + ": медиана, с");
+                table.Add(name + "_per_run", name + ": на прогон, с");
             }
 
             // значения субъекта в порядке первого появления

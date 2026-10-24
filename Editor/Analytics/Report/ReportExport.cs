@@ -213,6 +213,7 @@ namespace Exerussus.AppCore.Analytics.Reports
         {
             w.BeginObject().Prop("id", table.Id).Prop("title", table.Title);
             WriteStrings(w, "columns", table.Columns);
+            WriteStrings(w, "labels", table.Labels.Count == table.Columns.Count ? table.Labels : table.Columns);
             w.Name("rows").BeginArray();
             foreach (var row in table.Rows)
             {
@@ -328,8 +329,8 @@ namespace Exerussus.AppCore.Analytics.Reports
                     if (!subjectTables.TryGetValue(t.Id, out var all))
                     {
                         all = new ReportTable { Id = t.Id, Title = t.Title };
-                        all.Columns.Add("tag");
-                        all.Columns.AddRange(t.Columns);
+                        all.Add("tag", "Тег");
+                        for (var i = 0; i < t.Columns.Count; i++) all.Add(t.Columns[i], i < t.Labels.Count ? t.Labels[i] : t.Columns[i]);
                         subjectTables.Add(t.Id, all);
                         tables.Add(all);
                     }
