@@ -28,7 +28,8 @@ namespace Exerussus.AppCore.Analytics
         /// <summary>
         /// Назначить доставку. <c>null</c> — дефолт по настройкам (экспорт в файлы или ждать; в лёгком режиме —
         /// не писать события вовсе).
-        /// Назначайте до первого кадра (RuntimeInitializeOnLoad) — иначе первые пакеты может забрать дефолт.
+        /// Назначайте до первого кадра: <c>RuntimeInitializeOnLoad</c> с AfterAssembliesLoaded или BeforeSceneLoad
+        /// (не SubsystemRegistration — там модуль сбрасывает статику) — иначе первые пакеты может забрать дефолт.
         /// </summary>
         public static void SetAdapter(IAnalyticsAdapter adapter)
         {
@@ -228,6 +229,9 @@ namespace Exerussus.AppCore.Analytics
         private static void Pump(bool force)
         {
             if (!_booted || _pumping) return; // адаптер позвал Flush/Pump изнутри Deliver — не входить второй раз
+
+            // простой (сбор выключен игроком или некуда доставлять, очередь пуста, пакета нет): кадр стоит два чтения полей
+            if (!force && _queue.Count == 0 && _bufferPacketId == null && !CanWrite) return;
 
             _pumping = true;
             try

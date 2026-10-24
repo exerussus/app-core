@@ -7,7 +7,7 @@ namespace Exerussus.AppCore.Analytics.Editor
     /// <summary>
     /// Правила ключей и полей событий и генерация <c>AppEvents</c>.
     /// Каждый уровень ключа — вложенный класс; у события — <c>Id</c>, <c>Key</c> и типизированный <c>Raise</c>:
-    /// <c>Game.Module.Focus</c> с полем <c>module:string</c> → <c>AppEvents.Game.Module.Focus.Raise(string module)</c>.
+    /// <c>Level.Enemy.Killed</c> с полем <c>enemy:string</c> → <c>AppEvents.Level.Enemy.Killed.Raise(string enemy)</c>.
     /// </summary>
     public static class AnalyticsKeys
     {

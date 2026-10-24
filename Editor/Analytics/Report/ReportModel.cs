@@ -16,12 +16,26 @@ namespace Exerussus.AppCore.Analytics.Reports
         public string Key;
         public ReportEventInfo Info;
         public readonly List<KeyValuePair<string, JsonValue>> Fields = new List<KeyValuePair<string, JsonValue>>();
+        /// <summary>Свойства из заголовка пакета (<c>p.*</c>, AppAnalytics.SetProperty); общий словарь пакета.</summary>
+        public Dictionary<string, string> Props = ReportSession.NoProps;
 
         /// <summary>Ось таймлайна прогона: игровое время, если есть, иначе реальное.</summary>
         public double Axis => double.IsNaN(G) ? T : G;
 
         /// <summary>Секунды от начала сессии.</summary>
         public double SessionTime => Run != null && !double.IsNaN(Run.Start) ? Run.Start + T : T;
+
+        /// <summary>Момент события (UTC) или null, если начало сессии неизвестно.</summary>
+        public DateTime? Utc => ReportSession.SafeAdd(Session?.StartTime, SessionTime);
+
+        /// <summary>Абсолютное время в секундах (для порядка между сессиями игрока); без даты — время в сессии.</summary>
+        public double Absolute => Session?.StartTime != null ? (Session.StartTime.Value - DateTime.UnixEpoch).TotalSeconds + SessionTime : SessionTime;
+
+        public string Prop(string name)
+        {
+            if (Props != null && Props.TryGetValue(name, out var v)) return v;
+            return Session != null && Session.Props.TryGetValue(name, out v) ? v : null;
+        }
 
         public JsonValue Field(string name)
         {
@@ -34,6 +48,18 @@ namespace Exerussus.AppCore.Analytics.Reports
 
     public sealed class ReportSession
     {
+        public static readonly Dictionary<string, string> NoProps = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Дата + секунды без исключения: вне диапазона DateTime — null.</summary>
+        public static DateTime? SafeAdd(DateTime? start, double seconds)
+        {
+            if (start == null || double.IsNaN(seconds) || double.IsInfinity(seconds)) return start;
+            var max = (DateTime.MaxValue - start.Value).TotalSeconds;
+            var min = (DateTime.MinValue - start.Value).TotalSeconds;
+            if (seconds >= max || seconds <= min) return null;
+            return start.Value.AddSeconds(seconds);
+        }
+
         public string Id;
         public string Profile;
         public string StartUtc;
@@ -46,9 +72,12 @@ namespace Exerussus.AppCore.Analytics.Reports
         public readonly List<ReportEvent> Events = new List<ReportEvent>();
         public readonly HashSet<long> Seqs = new HashSet<long>();
         public double Duration;
-        public double Away;
         public bool Ended;
         public long Dropped;
+        /// <summary>Пропуски в номерах событий (потерянные пакеты).</summary>
+        public long Missing;
+        /// <summary>Свойства сессии: последнее значение каждого <c>p.*</c> из заголовков.</summary>
+        public readonly Dictionary<string, string> Props = new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
     public sealed class ReportRun
@@ -64,7 +93,7 @@ namespace Exerussus.AppCore.Analytics.Reports
         public double GameTime = double.NaN;
         /// <summary>Начало в секундах сессии (header.runStart) или NaN.</summary>
         public double Start = double.NaN;
-        public double Away;
+        /// <summary>Сколько событий с окраской «успех» / «провал» в привязках (по всем представлениям).</summary>
         public int Positive;
         public int Negative;
         public readonly List<ReportEvent> Events = new List<ReportEvent>();
@@ -77,18 +106,39 @@ namespace Exerussus.AppCore.Analytics.Reports
             get
             {
                 if (Session?.StartTime == null) return null;
-                return Session.StartTime.Value.AddSeconds(double.IsNaN(Start) ? 0 : Start);
+                return ReportSession.SafeAdd(Session.StartTime, double.IsNaN(Start) ? 0 : Start);
             }
         }
 
-        /// <summary>Конец оси таймлайна.</summary>
+        /// <summary>Конец прогона в реальных секундах.</summary>
+        public double RealEnd
+        {
+            get
+            {
+                var end = Duration;
+                foreach (var e in Events)
+                    if (e.T > end) end = e.T;
+                return end;
+            }
+        }
+
+        /// <summary>Конец оси таймлайна: последнее игровое время, если прогон его пишет, иначе реальное.</summary>
         public double AxisEnd
         {
             get
             {
                 var end = 0.0;
+                var game = false;
                 foreach (var e in Events)
-                    if (e.Axis > end) end = e.Axis;
+                    if (!double.IsNaN(e.G))
+                    {
+                        if (!game || e.G > end) end = e.G;
+                        game = true;
+                    }
+
+                if (game) return Math.Max(0, end);
+                foreach (var e in Events)
+                    if (e.T > end) end = e.T;
                 return end;
             }
         }
@@ -100,21 +150,26 @@ namespace Exerussus.AppCore.Analytics.Reports
         public int Sessions;
         public int Runs;
         public double Time;
-        public double Away;
         public int Negative;
         public DateTime? First;
         public DateTime? Last;
         public string Platform;
         public string Build;
         public readonly SortedDictionary<string, int> Results = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        public readonly Dictionary<string, string> Props = new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
-    /// <summary>Интервал (focus, turn…) по субъекту внутри прогона или сессии.</summary>
+    /// <summary>Интервал представления «Интервал» по субъекту внутри прогона или сессии.</summary>
     public sealed class ReportInterval
     {
         public ReportSession Session;
         public ReportRun Run;
+        /// <summary>Id представления.</summary>
         public string Name;
+        /// <summary>Событие начала (для измерений и фильтра).</summary>
+        public ReportEvent BeginEvent;
+        /// <summary>Событие конца или null (закрыт концом прогона/сессии, повторным началом).</summary>
+        public ReportEvent EndEvent;
         public string Subject;
         /// <summary>По оси прогона (g, иначе t).</summary>
         public double Start;
@@ -145,31 +200,14 @@ namespace Exerussus.AppCore.Analytics.Reports
         }
     }
 
-    /// <summary>Воронка: субъекты интервала по порядку первого начала, сколько прогонов дошло и закрыло.</summary>
-    public sealed class ReportFunnel
-    {
-        public string Interval;
-        public string SubjectField;
-        public int Runs;
-        public readonly List<ReportFunnelStep> Steps = new List<ReportFunnelStep>();
-    }
-
-    public sealed class ReportFunnelStep
-    {
-        public string Subject;
-        public int Reached;
-        public int Closed;
-        public double MedianDuration = double.NaN;
-    }
-
-    /// <summary>Прогоны одного тега (сценария, уровня…) и всё, что считается по ним.</summary>
+    /// <summary>Прогоны одного тега (уровня, режима…).</summary>
     public sealed class ReportTag
     {
         public string Tag;
         public readonly List<ReportRun> Runs = new List<ReportRun>();
         public readonly SortedDictionary<string, int> Results = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        public readonly List<ReportTable> Tables = new List<ReportTable>();
-        public readonly List<ReportFunnel> Funnels = new List<ReportFunnel>();
+        /// <summary>Представления, посчитанные по прогонам этого тега.</summary>
+        public readonly List<ViewResult> Views = new List<ViewResult>();
     }
 
     public sealed class ReportOptions
@@ -178,6 +216,20 @@ namespace Exerussus.AppCore.Analytics.Reports
         public bool Anonymize;
         public string Title;
         public ReportFilter Filter = new ReportFilter();
+        /// <summary>Часовой пояс для «по дням»; null — из файла представлений.</summary>
+        public string TimeZone;
+        /// <summary>Только эти представления (id); пусто — все.</summary>
+        public readonly HashSet<string> Views = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>Перекрыть группировку представлений на этот вызов (CLI).</summary>
+        public readonly List<string> GroupBy = new List<string>();
+        /// <summary>Перекрыть агрегаты на этот вызов (CLI).</summary>
+        public readonly List<string> Aggs = new List<string>();
+        /// <summary>Перекрыть сравнение на этот вызов (CLI).</summary>
+        public string Compare;
+        /// <summary>Дополнительный фильтр событий на этот вызов (CLI), склеивается с where представления через &amp;&amp;.</summary>
+        public string Where;
+        /// <summary>Не считать представления (только сессии, прогоны, сырые данные).</summary>
+        public bool SkipViews;
     }
 
     /// <summary>
@@ -224,6 +276,20 @@ namespace Exerussus.AppCore.Analytics.Reports
     public sealed class ReportData
     {
         public ReportCatalog Catalog;
+        /// <summary>Представления, участвующие в отчёте (встроенные + проекта, с перекрытиями CLI).</summary>
+        public readonly List<ReportView> Views = new List<ReportView>();
+        /// <summary>Представления по всем данным.</summary>
+        public readonly List<ViewResult> ViewResults = new List<ViewResult>();
+        /// <summary>Таймлайны последних прогонов: дорожки представлений.</summary>
+        public readonly List<RunTimeline> Timelines = new List<RunTimeline>();
+        public ReportTime Time = ReportTime.Utc;
+        /// <summary>Первое появление игрока во всех прочитанных данных (до фильтра) — для когорт удержания.</summary>
+        public readonly Dictionary<string, DateTime> FirstSeen = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        /// <summary>Данные прошлого периода той же длины (для «сравнить с прошлым периодом»); null — нет.</summary>
+        public ReportData Previous;
+        /// <summary>Период отчёта (UTC): начало первой и конец последней сессии.</summary>
+        public DateTime? PeriodFrom;
+        public DateTime? PeriodTo;
         public ReportOptions Options;
         public DateTime Generated;
         public readonly List<string> Sources = new List<string>();

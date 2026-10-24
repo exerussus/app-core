@@ -9,8 +9,8 @@ namespace Exerussus.AppCore.Analytics
     /// (<see cref="AnalyticsSettings"/>).
     /// </summary>
     /// <remarks>
-    /// <para>Вызов: <c>AppEvents.Game.Module.Focus.Raise(moduleId)</c> — сгенерированный типизированный метод,
-    /// или <c>Begin(IdOf("Game.Module.Focus")).Field(...).End()</c> для ключа, взятого по строке.</para>
+    /// <para>Вызов: <c>AppEvents.Level.Enemy.Killed.Raise(enemyId)</c> — сгенерированный типизированный метод,
+    /// или <c>Begin(IdOf("Level.Enemy.Killed")).Field(...).End()</c> для ключа, взятого по строке.</para>
     /// <para>События пишутся в открытый пакет — JSONL в буфере фиксированного размера, выделенном один раз при
     /// старте: запись события не аллоцирует и не растит память. Пакет закрывается по числу событий, размеру,
     /// возрасту, на границе профиля/сессии/прогона и на <see cref="Flush"/>; закрытый — в очередь
@@ -85,7 +85,13 @@ namespace Exerussus.AppCore.Analytics
         public static string SessionId => _sessionId;
 
         /// <summary>Id текущего прогона (партии) или <c>null</c>.</summary>
-        public static string RunId => _runId;
+        public static string RunId => ReferenceEquals(_runId, SilentRun) ? null : _runId;
+
+        /// <summary>Прогон, начатый, когда события не пишутся: без id и без своих пакетов.</summary>
+        private static readonly string SilentRun = new string('-', 1);
+
+        /// <summary>Прогон с id (пишется): события — по его часам и в его пакетах.</summary>
+        private static bool InRun => _runId != null && !ReferenceEquals(_runId, SilentRun);
 
         /// <summary>Выбор игрока: сбор включён (хранится в PlayerPrefs). Пишется ли сейчас — <see cref="IsCollecting"/>.</summary>
         public static bool CollectEnabled => _collecting;
@@ -156,12 +162,20 @@ namespace Exerussus.AppCore.Analytics
 
         /// <summary>
         /// Начать прогон (партию). Закрывает текущий пакет: пакет не смешивает прогоны.
-        /// <paramref name="tag"/> — что запускается (например, id сценария).
+        /// <paramref name="tag"/> — что запускается (например, id уровня).
         /// </summary>
         public static void BeginRun(string tag = null)
         {
             if (!_booted) return;
             if (_runId != null) EndRun("interrupted");
+
+            if (!CanWrite)
+            {
+                // не пишется (сбор выключен, лёгкий режим без адаптера): ни id, ни пакета — прогон только отмечен
+                _runId = SilentRun;
+                _runStart = Now();
+                return;
+            }
 
             Seal();
             _runId = Guid.NewGuid().ToString("N");
@@ -176,6 +190,11 @@ namespace Exerussus.AppCore.Analytics
         public static void EndRun(string result = null)
         {
             if (!_booted || _runId == null) return;
+            if (ReferenceEquals(_runId, SilentRun))
+            {
+                _runId = null;
+                return;
+            }
 
             if (BeginSystem("app.run.end"))
             {
@@ -186,6 +205,175 @@ namespace Exerussus.AppCore.Analytics
 
             _runId = null;
             Flush(AnalyticsFlushReason.RunEnd);
+        }
+
+        // ---------------------------------------------------------------- свойства
+
+        /// <summary>Сколько свойств может быть одновременно.</summary>
+        public const int MaxProperties = 16;
+        public const int MaxPropertyName = 32;
+        public const int MaxPropertyValue = 128;
+        /// <summary>Все свойства в заголовке вместе (имена и значения): заголовок не должен съедать пакет.</summary>
+        public const int MaxPropertiesChars = 1024;
+
+        private static string[] _propNames = Array.Empty<string>();
+        private static string[] _propKeys = Array.Empty<string>();
+        private static string[] _propValues = Array.Empty<string>();
+        private static int _propCount;
+        private static bool _propWarned;
+
+        /// <summary>
+        /// Свойство игрока или сессии для сегментов отчёта (<c>@prop.имя</c>): A/B-группа, версия прихода, режим.
+        /// Пишется в заголовок каждого следующего пакета (поле <c>p.имя</c>) и событием <c>app.property</c>.
+        /// Повтор того же значения ничего не делает и не аллоцирует; новое значение пишется событием и попадает
+        /// в заголовки следующих пакетов (текущий пакет не закрывается). Можно звать до старта модуля.
+        /// <c>null</c> — убрать свойство. До 16 свойств, имя до 32 символов (латиница, цифры, «_», «-», «.»),
+        /// значение до 128 печатных символов; все свойства вместе — не больше <see cref="MaxPropertiesChars"/>.
+        /// Передавайте закэшированные строки: модуль не копирует и не форматирует значение.
+        /// </summary>
+        public static void SetProperty(string name, string value)
+        {
+            if (_faulted) return;
+
+            try
+            {
+                SetPropertyCore(name, value);
+            }
+            catch (Exception e)
+            {
+                Fault(e);
+            }
+        }
+
+        /// <summary>Логическое свойство: «true» / «false» (строки-константы, без аллокаций).</summary>
+        public static void SetProperty(string name, bool value) => SetProperty(name, value ? "true" : "false");
+
+        /// <summary>Текущее значение свойства или <c>null</c>.</summary>
+        public static string GetProperty(string name)
+        {
+            var i = PropIndex(name);
+            return i >= 0 ? _propValues[i] : null;
+        }
+
+        private static void SetPropertyCore(string name, string value)
+        {
+            if (!ValidPropName(name))
+            {
+                WarnProp($"имя свойства «{name}»: 1–{MaxPropertyName} символов, латиница, цифры, «_», «-», «.»");
+                return;
+            }
+
+            if (value != null && !ValidPropValue(value))
+            {
+                WarnProp($"значение свойства «{name}»: до {MaxPropertyValue} символов без управляющих — не записано");
+                return;
+            }
+
+            var i = PropIndex(name);
+            if (i >= 0 && string.Equals(_propValues[i], value, StringComparison.Ordinal)) return;
+
+            if (value != null)
+            {
+                // бюджет заголовка: все свойства вместе, с кавычками и запятыми
+                var total = 0;
+                for (var k = 0; k < _propCount; k++)
+                    if (k != i) total += _propKeys[k].Length + _propValues[k].Length + 6;
+                total += name.Length + 2 + value.Length + 6;
+                if (total > MaxPropertiesChars)
+                {
+                    WarnProp($"свойства вместе длиннее {MaxPropertiesChars} символов — «{name}» не записано");
+                    return;
+                }
+            }
+            if (i < 0)
+            {
+                if (value == null) return;
+                if (_propCount >= MaxProperties)
+                {
+                    WarnProp($"свойств больше {MaxProperties} — «{name}» не записано");
+                    return;
+                }
+
+                if (_propNames.Length == 0)
+                {
+                    // один раз за запуск и только если проект пользуется свойствами
+                    _propNames = new string[MaxProperties];
+                    _propKeys = new string[MaxProperties];
+                    _propValues = new string[MaxProperties];
+                }
+
+                i = _propCount++;
+                _propNames[i] = name;
+                _propKeys[i] = "p." + name;
+            }
+
+            if (value == null)
+            {
+                // убрать: сдвинуть хвост
+                for (var k = i; k < _propCount - 1; k++)
+                {
+                    _propNames[k] = _propNames[k + 1];
+                    _propKeys[k] = _propKeys[k + 1];
+                    _propValues[k] = _propValues[k + 1];
+                }
+
+                _propCount--;
+                _propNames[_propCount] = null;
+                _propKeys[_propCount] = null;
+                _propValues[_propCount] = null;
+            }
+            else
+            {
+                _propValues[i] = value;
+            }
+
+            // событие несёт изменение внутри текущего пакета; заголовки следующих пакетов — уже с новым значением
+            if (BeginSystem("app.property"))
+            {
+                WriteField("name", name);
+                WriteField("value", value);
+                EndEvent();
+            }
+        }
+
+        private static int PropIndex(string name)
+        {
+            if (name == null) return -1;
+            for (var i = 0; i < _propCount; i++)
+                if (string.Equals(_propNames[i], name, StringComparison.Ordinal)) return i;
+            return -1;
+        }
+
+        private static bool ValidPropValue(string value)
+        {
+            if (value.Length > MaxPropertyValue) return false;
+            foreach (var c in value)
+                if (c < 0x20 || c == '"' || c == '\\') return false;
+            return true;
+        }
+
+        private static bool ValidPropName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length > MaxPropertyName) return false;
+            foreach (var c in name)
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) return false;
+            return true;
+        }
+
+        private static void WarnProp(string text)
+        {
+            if (_propWarned) return;
+            _propWarned = true;
+            Debug.LogWarning("[AppAnalytics] " + text + " (дальше такие предупреждения не выводятся).");
+        }
+
+        private static void ClearProperties()
+        {
+            _propNames = Array.Empty<string>();
+            _propKeys = Array.Empty<string>();
+            _propValues = Array.Empty<string>();
+            _propCount = 0;
+            _propWarned = false;
         }
 
         /// <summary>Номер события по ключу (для ручек по строке), -1 — нет такого.</summary>
@@ -202,7 +390,7 @@ namespace Exerussus.AppCore.Analytics
         /// </summary>
         public static AnalyticsEventWriter Begin(int id)
         {
-            if (!CanWrite || (uint)id >= (uint)_keys.Length || !_eventOn[id]) return default;
+            if (!CanWrite || _starting || (uint)id >= (uint)_keys.Length || !_eventOn[id]) return default;
 
             try
             {
@@ -228,6 +416,8 @@ namespace Exerussus.AppCore.Analytics
             {
                 Seal();
                 if (!_booted) return;
+                // нечего доставлять и не пишется — адаптер не трогаем (игрок отказался от сбора)
+                if (_queue.Count == 0 && !CanWrite) return;
 
                 var adapter = Adapter();
                 if (adapter != null)
@@ -297,7 +487,7 @@ namespace Exerussus.AppCore.Analytics
         /// <summary>Системное событие ядра (<c>app.*</c>) — пишется, если можно писать, в обход каталога.</summary>
         private static bool BeginSystem(string key)
         {
-            if (!CanWrite) return false;
+            if (!CanWrite || _starting) return false;
 
             try
             {
@@ -317,8 +507,12 @@ namespace Exerussus.AppCore.Analytics
             if (BeginSystem(key)) EndEvent();
         }
 
+        private static bool _starting;
+
         private static void StartEvent(string key)
         {
+            // Raise из колбэка игровых часов (он вызывается внутри StartEvent) — не вкладывать событие в событие
+            if (_starting) return;
             if (_inEvent) EndEvent();
             if (_chars.Length == 0) AllocateBuffer(_settings); // лениво: модуль, который не пишет, не держит буфер
             if (_len >= _softLimit) Seal();
@@ -331,7 +525,7 @@ namespace Exerussus.AppCore.Analytics
             _seq++;
 
             var now = Now();
-            var origin = _runId != null ? _runStart : _sessionStart;
+            var origin = InRun ? _runStart : _sessionStart;
 
             Put("{\"s\":");
             PutLong(_seq);
@@ -342,6 +536,7 @@ namespace Exerussus.AppCore.Analytics
             if (clock != null)
             {
                 double game;
+                _starting = true;
                 try
                 {
                     game = clock();
@@ -349,6 +544,10 @@ namespace Exerussus.AppCore.Analytics
                 catch
                 {
                     game = double.NaN;
+                }
+                finally
+                {
+                    _starting = false;
                 }
 
                 Put(",\"g\":");
@@ -440,9 +639,9 @@ namespace Exerussus.AppCore.Analytics
             Put(",\"session\":");
             PutString(_sessionId);
             Put(",\"run\":");
-            PutString(_runId);
+            PutString(InRun ? _runId : null);
             Put(",\"clock\":");
-            PutString(_runId != null ? "run" : "session");
+            PutString(InRun ? "run" : "session");
             Put(",\"sessionStartUtc\":");
             PutString(_sessionStartUtc);
             Put(",\"build\":");
@@ -451,7 +650,23 @@ namespace Exerussus.AppCore.Analytics
             PutString(_platform);
             Put(",\"unity\":");
             PutString(_unityVersion);
-            if (_runId != null)
+            // свойства — только если заголовок с ними помещается в половину пакета (бюджет SetProperty это гарантирует
+            // при размере пакета от 4 КБ; проверка — на случай маленького пакета)
+            var beforeProps = _len;
+            for (var p = 0; p < _propCount; p++)
+            {
+                Put(',');
+                PutString(_propKeys[p]);
+                Put(':');
+                PutString(_propValues[p]);
+            }
+
+            if (_overflow || _len > _softLimit / 2)
+            {
+                _len = beforeProps;
+                _overflow = false;
+            }
+            if (InRun)
             {
                 Put(",\"runStart\":");
                 PutNumber(_runStart - _sessionStart);
@@ -463,15 +678,20 @@ namespace Exerussus.AppCore.Analytics
             if (_dropped > 0)
             {
                 // Видимая дыра: сколько событий потеряно (переполнение очереди или события).
-                var dropped = _dropped;
-                _dropped = 0;
-                _seq++;
+                var lineStart = _len;
+                _overflow = false;
                 Put("{\"s\":");
-                PutLong(_seq);
+                PutLong(_seq + 1);
                 Put(",\"t\":0,\"e\":\"app.analytics.dropped\",\"count\":");
-                PutLong(dropped);
+                PutLong(_dropped);
                 Put("}\n");
-                _bufferEvents++;
+                if (_overflow) _len = lineStart; // не влезло — счётчик остаётся до следующего заголовка
+                else
+                {
+                    _seq++;
+                    _dropped = 0;
+                    _bufferEvents++;
+                }
             }
 
             _overflow = false;

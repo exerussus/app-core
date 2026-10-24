@@ -3,23 +3,6 @@ using System.Collections.Generic;
 
 namespace Exerussus.AppCore.Analytics.Reports
 {
-    /// <summary>Роль события в отчёте (копия AnalyticsReportRole: сборщик не зависит от Unity).</summary>
-    public enum ReportRole : byte
-    {
-        None = 0,
-        Mark = 1,
-        Begin = 2,
-        End = 3,
-        State = 4,
-    }
-
-    public enum ReportTone : byte
-    {
-        Neutral = 0,
-        Positive = 1,
-        Negative = 2,
-    }
-
     public enum ReportFieldType : byte
     {
         Int = 0,
@@ -33,40 +16,45 @@ namespace Exerussus.AppCore.Analytics.Reports
         public string Name;
         public ReportFieldType Type;
         public string Note;
+
+        public bool IsNumber => Type == ReportFieldType.Int || Type == ReportFieldType.Float;
     }
 
-    /// <summary>Событие каталога глазами отчёта: ключ, поля и роль.</summary>
+    /// <summary>Событие каталога глазами отчёта: ключ, название, поля.</summary>
     public sealed class ReportEventInfo
     {
         public string Key;
         public string Title;
-        public ReportRole Role;
-        public string Interval;
-        public string Subject;
-        public string Measure;
-        public string Value;
-        public ReportTone Tone;
+        public string When;
         public readonly List<ReportField> Fields = new List<ReportField>();
 
-        public bool HasRole => Role != ReportRole.None;
+        public ReportField Field(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            foreach (var f in Fields)
+                if (f.Name == name) return f;
+            return null;
+        }
     }
 
     /// <summary>
-    /// Каталог для сборки отчёта. Редактор заполняет его из AnalyticsSettings; события, которых нет в каталоге
-    /// (старые билды, системные <c>app.*</c>), попадают в отчёт без роли.
+    /// Каталог для сборки отчёта: события (из AnalyticsSettings) и файл представлений проекта. События, которых
+    /// нет в каталоге (старые билды, системные <c>app.*</c>), попадают в отчёт; в представления — если подходят
+    /// по маске или классифицированы в файле.
     /// </summary>
     public sealed class ReportCatalog
     {
         public string Title = "Аналитика";
         public string Schema = string.Empty;
         public readonly List<ReportEventInfo> Events = new List<ReportEventInfo>();
+        public ReportConfig Config = new ReportConfig();
 
         private Dictionary<string, ReportEventInfo> _byKey;
 
         public ReportEventInfo Find(string key)
         {
             if (key == null) return null;
-            if (_byKey == null)
+            if (_byKey == null || _byKey.Count != Events.Count)
             {
                 _byKey = new Dictionary<string, ReportEventInfo>(StringComparer.Ordinal);
                 foreach (var e in Events)
@@ -76,22 +64,40 @@ namespace Exerussus.AppCore.Analytics.Reports
             return _byKey.TryGetValue(key, out var info) ? info : null;
         }
 
-        /// <summary>Имена полей-субъектов, которые встречаются в ролях каталога (module, pipeline…), по порядку появления.</summary>
-        public List<string> SubjectFields()
+        /// <summary>Системные события AppCore — их поля известны ядру, в каталоге проекта их нет.</summary>
+        public static readonly ReportEventInfo[] SystemEvents = BuildSystem();
+
+        private static ReportEventInfo[] BuildSystem()
         {
-            var result = new List<string>();
-            foreach (var e in Events)
-                if (e.HasRole && !string.IsNullOrEmpty(e.Subject) && !result.Contains(e.Subject)) result.Add(e.Subject);
-            return result;
+            ReportEventInfo E(string key, string title, params (string, ReportFieldType)[] fields)
+            {
+                var info = new ReportEventInfo { Key = key, Title = title };
+                foreach (var (n, t) in fields) info.Fields.Add(new ReportField { Name = n, Type = t });
+                return info;
+            }
+
+            return new[]
+            {
+                E("app.session.start", "Начало сессии"),
+                E("app.session.end", "Конец сессии"),
+                E("app.run.begin", "Начало прогона", ("tag", ReportFieldType.String)),
+                E("app.run.end", "Конец прогона", ("result", ReportFieldType.String), ("duration", ReportFieldType.Float)),
+                E("app.profile.new", "Новый профиль", ("previous", ReportFieldType.String)),
+                E("app.property", "Свойство изменено", ("name", ReportFieldType.String), ("value", ReportFieldType.String)),
+                E("app.analytics.on", "Сбор включён"),
+                E("app.analytics.off", "Сбор выключен"),
+                E("app.analytics.dropped", "Потеряны события", ("count", ReportFieldType.Int)),
+            };
         }
 
-        /// <summary>Имена интервалов (focus, turn…), по порядку появления начала.</summary>
-        public List<string> Intervals()
+        /// <summary>Событие каталога или системное AppCore; null — неизвестно.</summary>
+        public ReportEventInfo FindAny(string key)
         {
-            var result = new List<string>();
-            foreach (var e in Events)
-                if (e.Role == ReportRole.Begin && !string.IsNullOrEmpty(e.Interval) && !result.Contains(e.Interval)) result.Add(e.Interval);
-            return result;
+            var info = Find(key);
+            if (info != null) return info;
+            foreach (var s in SystemEvents)
+                if (s.Key == key) return s;
+            return null;
         }
     }
 }

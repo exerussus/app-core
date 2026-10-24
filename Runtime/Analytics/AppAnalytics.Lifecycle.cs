@@ -15,6 +15,10 @@ namespace Exerussus.AppCore.Analytics
         private static bool _flushOnFocusLoss;
         private static double _unfocusedAt = -1;
         private static double _lastPauseFlush = double.NegativeInfinity;
+        private static double _lastHideFlush = double.NegativeInfinity;
+
+        /// <summary>Скрытие страницы WebGL сбрасывает пакет не чаще раза в столько секунд (не зависит от фокуса окна).</summary>
+        private const double HideFlushInterval = 1.0;
         private static GameObject _host;
 
         /// <summary>Сброс по потере фокуса не чаще раза в столько секунд: мигание фокуса (клавиатура, оверлеи) не плодит пакеты.</summary>
@@ -39,6 +43,10 @@ namespace Exerussus.AppCore.Analytics
             _defaultAdapter = false;
             _store = null;
             _gameClock = null;
+            _collecting = false;
+            _profileId = string.Empty;
+            _sessionId = string.Empty;
+            ClearProperties();
             ProfileChanged = null;
             CollectingChanged = null;
         }
@@ -108,13 +116,14 @@ namespace Exerussus.AppCore.Analytics
                     _quitHooked = true;
                 }
 
-                if (!_focusHooked)
+                // фокус нужен только для сброса пакета на WebGL и мобильных; на ПК не подписываемся вовсе
+                _flushOnFocusLoss = Application.platform == RuntimePlatform.WebGLPlayer || Application.isMobilePlatform;
+                if (_flushOnFocusLoss && !_focusHooked)
                 {
                     Application.focusChanged += OnFocusChanged;
                     _focusHooked = true;
                 }
 
-                _flushOnFocusLoss = Application.platform == RuntimePlatform.WebGLPlayer || Application.isMobilePlatform;
                 // на старте isFocused часто ещё false — не считать это уходом из приложения
                 _unfocusedAt = -1;
                 _lastPauseFlush = double.NegativeInfinity;
@@ -133,33 +142,21 @@ namespace Exerussus.AppCore.Analytics
 
         private static void Shutdown(bool seal)
         {
-            if (seal && _booted && _collecting) Seal();
+            if (seal && _booted && _collecting)
+            {
+                try
+                {
+                    Seal();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
+                }
+            }
 
+            // сначала — своё состояние (не бросает), потом внешние вызовы, каждый отдельно:
+            // сбой одного не оставит старый пакет и счётчики следующему запуску без перезагрузки домена
             _booted = false;
-            UninstallLoop();
-
-            if (_quitHooked)
-            {
-                Application.quitting -= OnQuitting;
-                _quitHooked = false;
-            }
-
-            if (_focusHooked)
-            {
-                Application.focusChanged -= OnFocusChanged;
-                _focusHooked = false;
-            }
-
-            if (_host != null)
-            {
-                if (Application.isPlaying) UnityEngine.Object.Destroy(_host);
-                else UnityEngine.Object.DestroyImmediate(_host);
-            }
-
-            _host = null;
-            _unfocusedAt = -1;
-            AnalyticsDeckCommands.Unregister();
-
             _settings = null;
             _keys = Array.Empty<string>();
             _eventOn = Array.Empty<bool>();
@@ -172,11 +169,50 @@ namespace Exerussus.AppCore.Analytics
             _bufferPacketId = null;
             _bufferEvents = 0;
             _inEvent = false;
+            _starting = false;
             _dropped = 0;
             _queue.Clear();
             _candidates.Clear();
             _queuedBytes = 0;
             _nextPump = 0;
+            _unfocusedAt = -1;
+            _lastPauseFlush = double.NegativeInfinity;
+            _lastHideFlush = double.NegativeInfinity;
+
+            Safe(UninstallLoop);
+            Safe(() =>
+            {
+                if (_quitHooked) Application.quitting -= OnQuitting;
+            });
+            _quitHooked = false;
+            Safe(() =>
+            {
+                if (_focusHooked) Application.focusChanged -= OnFocusChanged;
+            });
+            _focusHooked = false;
+
+            var host = _host;
+            _host = null;
+            if (host != null)
+                Safe(() =>
+                {
+                    if (Application.isPlaying) UnityEngine.Object.Destroy(host);
+                    else UnityEngine.Object.DestroyImmediate(host);
+                });
+
+            Safe(AnalyticsDeckCommands.Unregister);
+        }
+
+        private static void Safe(Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
         }
 
         /// <summary>Каталог → плоские массивы: номер события = индекс записи.</summary>
@@ -240,8 +276,8 @@ namespace Exerussus.AppCore.Analytics
         }
 
         /// <summary>
-        /// Окно приложения потеряло / вернуло фокус: <c>app.focus.lost</c>, <c>app.focus.gained</c> с полем
-        /// <c>away</c> — сколько секунд приложение было не в фокусе.
+        /// Окно приложения потеряло фокус: на WebGL и мобильных — сбросить пакет (вкладку скрыли, приложение ушло в фон —
+        /// могут не вернуться). Событий о фокусе окна модуль не пишет: в отчёте это шум, а запись — лишняя работа.
         /// </summary>
         private static void OnFocusChanged(bool focused)
         {
@@ -264,20 +300,11 @@ namespace Exerussus.AppCore.Analytics
             {
                 if (_unfocusedAt >= 0) return;
                 _unfocusedAt = Now();
-                WriteSystem("app.focus.lost");
-
-                // WebGL и мобильные: потеря фокуса — вкладку скрыли / ушли в фон, могут не вернуться.
                 if (_flushOnFocusLoss) PauseFlush();
                 return;
             }
 
-            if (_unfocusedAt < 0) return;
-            var away = Now() - _unfocusedAt;
             _unfocusedAt = -1;
-
-            if (!BeginSystem("app.focus.gained")) return;
-            WriteField("away", away);
-            EndEvent();
         }
 
         internal static void OnApplicationPause(bool paused)
@@ -296,7 +323,21 @@ namespace Exerussus.AppCore.Analytics
         /// <summary>Страница WebGL скрыта (visibilitychange / pagehide из jslib) или снова видна.</summary>
         internal static void OnPageVisibility(bool visible)
         {
-            OnFocusChanged(visible);
+            if (visible || !_booted) return;
+
+            // скрытие страницы (вкладка, фон WebView) — всегда сброс: могут не вернуться; размытие окна перед этим не мешает
+            try
+            {
+                var now = Now();
+                if (now - _lastHideFlush < HideFlushInterval) return;
+                _lastHideFlush = now;
+                _lastPauseFlush = now;
+                Flush(AnalyticsFlushReason.Pause);
+            }
+            catch (Exception e)
+            {
+                Fault(e);
+            }
         }
 
         private static void PauseFlush()

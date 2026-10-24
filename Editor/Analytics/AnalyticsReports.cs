@@ -30,6 +30,14 @@ namespace Exerussus.AppCore.Analytics.Editor
         public List<string> builds = new List<string>();
         public List<string> platforms = new List<string>();
         public List<string> tags = new List<string>();
+        /// <summary>Только эти представления (id); пусто — все.</summary>
+        public List<string> views = new List<string>();
+        /// <summary>Последние N дней (0 — по from/to).</summary>
+        public int lastDays;
+        /// <summary>Часовой пояс на этой машине; пусто — из файла представлений.</summary>
+        public string timezone = string.Empty;
+        /// <summary>Таблица сырых событий в CSV/JSON.</summary>
+        public bool rawEvents = true;
     }
 
     /// <summary>
@@ -62,6 +70,8 @@ namespace Exerussus.AppCore.Analytics.Editor
                         prefs.builds ??= new List<string>();
                         prefs.platforms ??= new List<string>();
                         prefs.tags ??= new List<string>();
+                        prefs.views ??= new List<string>();
+                        prefs.timezone ??= string.Empty;
                         return prefs;
                     }
                 }
@@ -95,40 +105,27 @@ namespace Exerussus.AppCore.Analytics.Editor
 
         // ============================================================ каталог
 
-        /// <summary>Каталог для сборщика: ключи, поля, роли. Нет ассета — пустой каталог (всё без ролей).</summary>
-        public static ReportCatalog Catalog(AnalyticsSettings settings = null)
+        /// <summary>Каталог для сборщика: события и поля из ассета + файл представлений. Нет ассета — пустой каталог.</summary>
+        public static ReportCatalog Catalog(AnalyticsSettings settings = null, ReportConfig config = null)
         {
             settings ??= AnalyticsCatalog.Load();
             var catalog = new ReportCatalog { Title = string.IsNullOrEmpty(Application.productName) ? "Аналитика" : Application.productName };
+            catalog.Config = config ?? AnalyticsReportStore.Load();
             if (settings == null) return catalog;
 
             catalog.Schema = settings.SchemaHash();
             foreach (var e in settings.Entries)
             {
                 if (string.IsNullOrEmpty(e.key)) continue;
-                var info = new ReportEventInfo
-                {
-                    Key = e.key,
-                    Title = e.title,
-                    Role = (ReportRole)e.report.role,
-                    Interval = Clean(e.report.interval),
-                    Subject = Clean(e.report.subject),
-                    Measure = Clean(e.report.measure),
-                    Value = Clean(e.report.value),
-                    Tone = (ReportTone)e.report.tone,
-                };
-
+                var info = new ReportEventInfo { Key = e.key, Title = e.title, When = e.when };
                 if (e.fields != null)
                     foreach (var f in e.fields)
                         info.Fields.Add(new ReportField { Name = f.name, Type = (ReportFieldType)f.type, Note = f.note });
-
                 catalog.Events.Add(info);
             }
 
             return catalog;
         }
-
-        private static string Clean(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
         // ============================================================ сборка
 
@@ -139,6 +136,16 @@ namespace Exerussus.AppCore.Analytics.Editor
 
             options.Filter.From = ParseDate(prefs.from, false);
             options.Filter.To = ParseDate(prefs.to, true);
+            if (prefs.lastDays > 0)
+            {
+                // последние N дней, включая сегодня (UTC)
+                var today = DateTime.UtcNow.Date;
+                options.Filter.From = today.AddDays(1 - prefs.lastDays);
+                options.Filter.To = today.AddDays(1).AddTicks(-1);
+            }
+
+            if (!string.IsNullOrWhiteSpace(prefs.timezone)) options.TimeZone = prefs.timezone.Trim();
+            foreach (var v in prefs.views) if (!string.IsNullOrWhiteSpace(v)) options.Views.Add(v.Trim());
             foreach (var b in prefs.builds) if (!string.IsNullOrWhiteSpace(b)) options.Filter.Builds.Add(b.Trim());
             foreach (var p in prefs.platforms) if (!string.IsNullOrWhiteSpace(p)) options.Filter.Platforms.Add(p.Trim());
             foreach (var t in prefs.tags) if (!string.IsNullOrWhiteSpace(t)) options.Filter.Tags.Add(t.Trim());
@@ -188,7 +195,7 @@ namespace Exerussus.AppCore.Analytics.Editor
                 path = Path.Combine(OutputDir(prefs), "analytics_" + Stamp() + ext);
             }
 
-            var csv = new CsvOptions { Delimiter = prefs.csvSemicolon ? ';' : ',', Bom = prefs.csvBom, IsoTimes = prefs.csvIsoTimes };
+            var csv = new CsvOptions { Delimiter = prefs.csvSemicolon ? ';' : ',', Bom = prefs.csvBom, IsoTimes = prefs.csvIsoTimes, IncludeEvents = prefs.rawEvents };
             ReportExport.Export(data, format, path, csv);
             return Path.GetFullPath(path);
         }
@@ -204,6 +211,57 @@ namespace Exerussus.AppCore.Analytics.Editor
                 case "": return ExportFormat.CsvZip;
                 default: throw new ArgumentException($"Формат «{s}»: csv | json | jsonl");
             }
+        }
+
+        // ============================================================ профили экспорта
+
+        /// <summary>Настройки вкладки, перекрытые профилем экспорта из файла представлений (на диск не пишутся).</summary>
+        public static AnalyticsReportPrefs ApplyProfile(AnalyticsReportPrefs prefs, ExportProfile profile)
+        {
+            prefs ??= LoadPrefs();
+            if (profile == null) return prefs;
+            var p = JsonUtility.FromJson<AnalyticsReportPrefs>(JsonUtility.ToJson(prefs)) ?? new AnalyticsReportPrefs();
+            p.folders ??= new List<string>();
+            p.views = new List<string>(profile.Views);
+            p.anonymize = profile.Anonymize || prefs.anonymize;
+            p.rawEvents = profile.Raw;
+            // период профиля целиком заменяет период вкладки
+            if (profile.LastDays > 0 || !string.IsNullOrWhiteSpace(profile.From) || !string.IsNullOrWhiteSpace(profile.To))
+            {
+                p.lastDays = profile.LastDays;
+                p.from = profile.From ?? string.Empty;
+                p.to = profile.To ?? string.Empty;
+            }
+            if (profile.Tags.Count > 0) p.tags = new List<string>(profile.Tags);
+            if (profile.Builds.Count > 0) p.builds = new List<string>(profile.Builds);
+            if (profile.Platforms.Count > 0) p.platforms = new List<string>(profile.Platforms);
+            if (!string.IsNullOrWhiteSpace(profile.TimeZone)) p.timezone = profile.TimeZone;
+            return p;
+        }
+
+        /// <summary>Выгрузить по профилю: все его форматы в папку вывода (или <paramref name="folder"/>). Возвращает пути.</summary>
+        public static List<string> RunProfile(ExportProfile profile, AnalyticsReportPrefs prefs = null, string folder = null)
+        {
+            prefs = ApplyProfile(prefs, profile);
+            var data = Build(prefs);
+            var dir = string.IsNullOrWhiteSpace(folder) ? OutputDir(prefs) : folder;
+            var stamp = Stamp();
+            var paths = new List<string>();
+            var formats = profile.Formats.Count > 0 ? profile.Formats : new List<string> { "html" };
+            foreach (var f in formats)
+            {
+                var name = Path.Combine(dir, profile.Id + "_" + stamp);
+                switch (f.Trim().ToLowerInvariant())
+                {
+                    case "html": paths.Add(WriteHtml(data, name + ".html", prefs)); break;
+                    case "csv": paths.Add(Export(data, ExportFormat.CsvZip, name + ".zip", prefs)); break;
+                    case "json": paths.Add(Export(data, ExportFormat.Json, name + ".json", prefs)); break;
+                    case "jsonl": paths.Add(Export(data, ExportFormat.Jsonl, name + ".jsonl", prefs)); break;
+                    default: throw new ArgumentException($"Профиль «{profile.Id}»: формат «{f}» — html, csv, json, jsonl");
+                }
+            }
+
+            return paths;
         }
 
         private static string Stamp() => DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);

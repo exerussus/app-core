@@ -30,6 +30,9 @@ namespace Exerussus.AppCore.Analytics.Reports
         public bool? DecimalComma;
 
         public bool UseDecimalComma => DecimalComma ?? Delimiter == ';';
+
+        /// <summary>Таблица сырых событий (events.csv). Профиль экспорта без «raw» её не кладёт.</summary>
+        public bool IncludeEvents = true;
     }
 
     /// <summary>report.html и экспорт из <see cref="ReportData"/>. Файлы пишутся через временный и переносятся.</summary>
@@ -50,7 +53,7 @@ namespace Exerussus.AppCore.Analytics.Reports
             WriteAtomic(path, html, false);
         }
 
-        /// <summary>JSON, который читает шаблон report.html.</summary>
+        /// <summary>JSON, который читает шаблон report.html: посчитанные представления, прогоны, игроки, таймлайны.</summary>
         public static string Payload(ReportData data)
         {
             var sb = new StringBuilder(1 << 16);
@@ -62,17 +65,20 @@ namespace Exerussus.AppCore.Analytics.Reports
 
             w.BeginObject();
             WriteMeta(w, data);
-            WriteCatalog(w, data);
+            w.Prop("catalog", CatalogNode(data));
+            w.Prop("results", ResultClasses(data));
 
             w.Name("sessions").BeginArray();
             foreach (var s in data.Sessions)
             {
                 w.BeginObject()
                  .Prop("id", s.Id).Prop("profile", s.Profile).Prop("start", Iso(s.StartTime))
-                 .Prop("duration", Round(s.Duration)).Prop("away", Round(s.Away))
+                 .Prop("duration", Round(s.Duration))
                  .Prop("platform", s.Platform).Prop("build", s.Build).Prop("ended", s.Ended)
-                 .Prop("dropped", s.Dropped).Prop("runs", s.Runs.Count).Prop("events", s.Events.Count)
-                 .EndObject();
+                 .Prop("dropped", s.Dropped).Prop("missing", s.Missing).Prop("runs", s.Runs.Count).Prop("events", s.Events.Count);
+                w.Name("props");
+                WriteMap(w, s.Props);
+                w.EndObject();
             }
             w.EndArray();
 
@@ -83,7 +89,7 @@ namespace Exerussus.AppCore.Analytics.Reports
                  .Prop("id", r.Id).Prop("session", sessionIndex[r.Session]).Prop("profile", r.Profile)
                  .Prop("tag", r.TagOrDash).Prop("result", r.Result).Prop("finished", r.Finished)
                  .Prop("start", Iso(r.StartTime)).Prop("duration", Round(r.Duration)).Prop("game", Round(r.GameTime))
-                 .Prop("away", Round(r.Away)).Prop("events", r.Events.Count)
+                 .Prop("events", r.Events.Count)
                  .Prop("positive", r.Positive).Prop("negative", r.Negative)
                  .Prop("platform", r.Session.Platform).Prop("build", r.Session.Build)
                  .EndObject();
@@ -95,13 +101,19 @@ namespace Exerussus.AppCore.Analytics.Reports
             {
                 w.BeginObject()
                  .Prop("id", p.Id).Prop("sessions", p.Sessions).Prop("runs", p.Runs)
-                 .Prop("time", Round(p.Time)).Prop("away", Round(p.Away)).Prop("negative", p.Negative)
+                 .Prop("time", Round(p.Time)).Prop("negative", p.Negative)
                  .Prop("first", Iso(p.First)).Prop("last", Iso(p.Last))
                  .Prop("platform", p.Platform).Prop("build", p.Build);
                 w.Name("results");
                 WriteCounts(w, p.Results);
+                w.Name("props");
+                WriteMap(w, p.Props);
                 w.EndObject();
             }
+            w.EndArray();
+
+            w.Name("views").BeginArray();
+            foreach (var v in data.ViewResults) w.Value(v.Data);
             w.EndArray();
 
             w.Name("tags").BeginArray();
@@ -113,61 +125,25 @@ namespace Exerussus.AppCore.Analytics.Reports
                 w.EndArray();
                 w.Name("results");
                 WriteCounts(w, t.Results);
-                w.Name("tables").BeginArray();
-                foreach (var table in t.Tables) WriteTable(w, table);
-                w.EndArray();
-                w.Name("funnels").BeginArray();
-                foreach (var f in t.Funnels)
-                {
-                    w.BeginObject().Prop("interval", f.Interval).Prop("field", f.SubjectField).Prop("runs", f.Runs);
-                    w.Name("steps").BeginArray();
-                    foreach (var step in f.Steps)
-                        w.BeginObject().Prop("subject", step.Subject).Prop("reached", step.Reached).Prop("closed", step.Closed)
-                         .Prop("median", Round(step.MedianDuration)).EndObject();
-                    w.EndArray();
-                    w.EndObject();
-                }
+                w.Name("views").BeginArray();
+                foreach (var v in t.Views) w.Value(v.Data);
                 w.EndArray();
                 w.EndObject();
             }
             w.EndArray();
 
-            // интервалы: [сессия, прогон|-1, имя, субъект, начало, конец, закрыт]
-            w.Name("intervals").BeginArray();
-            foreach (var i in data.Intervals)
+            // таймлайны последних прогонов: дорожки посчитаны в C#, события в отчёт не кладутся
+            w.Name("timelines").BeginArray();
+            foreach (var tl in data.Timelines)
             {
-                w.BeginArray().Value(sessionIndex[i.Session]).Value(i.Run != null ? runIndex[i.Run] : -1)
-                 .Value(i.Name).Value(i.Subject).Value(Round(i.Start)).Value(Round(i.End)).Value(i.Closed).EndArray();
+                if (!runIndex.TryGetValue(tl.Run, out var index)) continue;
+                w.BeginObject().Prop("run", index).Prop("end", Round(tl.Run.AxisEnd)).Prop("realEnd", Round(tl.Run.RealEnd))
+                 .Prop("hasGame", !double.IsNaN(tl.Run.GameTime));
+                w.Name("lanes").BeginArray();
+                foreach (var lane in tl.Lanes) w.Value(lane);
+                w.EndArray();
+                w.EndObject();
             }
-            w.EndArray();
-
-            // события компактно: [сессия, прогон|-1, s, t, g|null, ключ (индекс в keys), {поля}]
-            var keys = new List<string>();
-            var keyIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-            w.Name("events").BeginArray();
-            foreach (var s in data.Sessions)
-            {
-                foreach (var e in s.Events)
-                {
-                    if (!keyIndex.TryGetValue(e.Key, out var k))
-                    {
-                        k = keys.Count;
-                        keys.Add(e.Key);
-                        keyIndex.Add(e.Key, k);
-                    }
-
-                    w.BeginArray().Value(sessionIndex[s]).Value(e.Run != null ? runIndex[e.Run] : -1).Value(e.Seq)
-                     .Value(Round(e.T)).Value(Round(e.G)).Value(k);
-                    w.BeginObject();
-                    foreach (var f in e.Fields) w.Name(f.Key).Value(f.Value);
-                    w.EndObject();
-                    w.EndArray();
-                }
-            }
-            w.EndArray();
-
-            w.Name("keys").BeginArray();
-            foreach (var k in keys) w.Value(k);
             w.EndArray();
 
             w.EndObject();
@@ -182,7 +158,11 @@ namespace Exerussus.AppCore.Analytics.Reports
              .Prop("files", data.Files).Prop("packets", data.Packets).Prop("duplicates", data.DuplicatePackets)
              .Prop("broken", data.BrokenLines).Prop("events", data.EventCount)
              .Prop("anonymized", data.Options.Anonymize)
-             .Prop("filter", (data.Options.Filter ?? new ReportFilter()).Describe());
+             .Prop("filter", (data.Options.Filter ?? new ReportFilter()).Describe())
+             .Prop("timezone", data.Time.Name)
+             .Prop("from", Iso(data.PeriodFrom)).Prop("to", Iso(data.PeriodTo))
+             .Prop("timelineRuns", data.Timelines.Count);
+            if (data.Previous != null) w.Prop("previousFrom", Iso(data.Previous.PeriodFrom)).Prop("previousTo", Iso(data.Previous.PeriodTo));
             WriteStrings(w, "sources", data.Sources);
             WriteStrings(w, "schemas", data.Schemas);
             WriteStrings(w, "builds", data.Builds);
@@ -192,36 +172,86 @@ namespace Exerussus.AppCore.Analytics.Reports
             w.EndObject();
         }
 
-        private static void WriteCatalog(JsonOut w, ReportData data)
+        /// <summary>
+        /// Каталог для отчёта и выгрузок: события с полями и классификацией (куда входят), представления, профили
+        /// экспорта, свойства. Внешний инструмент разберёт выгрузку по нему, не зная, что за игра.
+        /// </summary>
+        public static JsonNode CatalogNode(ReportData data)
         {
-            w.Name("catalog").BeginArray();
-            foreach (var e in data.Catalog.Events)
+            var config = data.Catalog.Config ?? new ReportConfig();
+            var views = config.EffectiveViews();
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var e in data.AllEvents())
             {
-                w.BeginObject().Prop("key", e.Key).Prop("title", e.Title).Prop("role", e.Role.ToString().ToLowerInvariant())
-                 .Prop("interval", e.Interval).Prop("subject", e.Subject).Prop("measure", e.Measure).Prop("value", e.Value)
-                 .Prop("tone", e.Tone.ToString().ToLowerInvariant());
-                w.Name("fields").BeginArray();
-                foreach (var f in e.Fields)
-                    w.BeginObject().Prop("name", f.Name).Prop("type", f.Type.ToString().ToLowerInvariant()).Prop("note", f.Note).EndObject();
-                w.EndArray();
-                w.EndObject();
+                counts.TryGetValue(e.Key, out var n);
+                counts[e.Key] = n + 1;
             }
-            w.EndArray();
+
+            var keys = new List<string>();
+            foreach (var e in data.Catalog.Events)
+                if (!string.IsNullOrEmpty(e.Key)) keys.Add(e.Key);
+            var extra = new List<string>();
+            foreach (var k in counts.Keys)
+                if (data.Catalog.Find(k) == null) extra.Add(k);
+            extra.Sort(StringComparer.Ordinal);
+            keys.AddRange(extra);
+
+            var events = JsonNode.Arr();
+            foreach (var key in keys)
+            {
+                var info = data.Catalog.FindAny(key);
+                var cls = config.FindEvent(key);
+                var n = JsonNode.Obj().Set("key", key).SetIf("title", info?.Title).SetIf("when", info?.When)
+                                .Set("system", data.Catalog.Find(key) == null).Set("count", counts.TryGetValue(key, out var c) ? c : 0)
+                                .Set("raw", cls != null && cls.Raw);
+                var fields = JsonNode.Arr();
+                if (info != null)
+                    foreach (var f in info.Fields)
+                        fields.Add(JsonNode.Obj().Set("name", f.Name ?? string.Empty).Set("type", f.Type.ToString().ToLowerInvariant()).SetIf("note", f.Note));
+                n.Set("fields", fields);
+                var bind = JsonNode.Arr();
+                foreach (var b in config.BindingsOf(key, views)) bind.Add(ReportConfig.WriteBinding(b, true));
+                n.Set("bind", bind);
+                events.Add(n);
+            }
+
+            var viewNodes = JsonNode.Arr();
+            foreach (var v in views)
+            {
+                var vn = ReportConfig.WriteView(v);
+                if (v.Builtin) vn.Set("builtin", true);
+                vn.Set("typeTitle", ViewTypes.Of(v.Type).Title);
+                viewNodes.Add(vn);
+            }
+
+            var full = config.ToNode();
+            return JsonNode.Obj().Set("schema", data.Catalog.Schema ?? string.Empty).Set("events", events).Set("views", viewNodes)
+                           .Set("profiles", full["profiles"]).Set("properties", full["properties"]).Set("timezone", config.TimeZone ?? "UTC");
         }
 
-        private static void WriteTable(JsonOut w, ReportTable table)
+        /// <summary>Классы итогов прогонов (подпись, окраска) — из представления app_runs проекта или встроенного.</summary>
+        private static JsonNode ResultClasses(ReportData data)
         {
-            w.BeginObject().Prop("id", table.Id).Prop("title", table.Title);
-            WriteStrings(w, "columns", table.Columns);
-            WriteStrings(w, "labels", table.Labels.Count == table.Columns.Count ? table.Labels : table.Columns);
-            w.Name("rows").BeginArray();
-            foreach (var row in table.Rows)
+            var config = data.Catalog.Config ?? new ReportConfig();
+            var view = config.FindView(ViewTypes.BuiltinRuns) ?? ViewTypes.BuiltinRunsView();
+            var node = JsonNode.Obj();
+            var core = ViewTypes.BuiltinRunsView();
+            foreach (var list in new[] { view.Outcomes, core.Outcomes })
+                foreach (var o in list)
+                    if (!string.IsNullOrEmpty(o.Value) && node[o.Value] == null)
+                        node.Set(o.Value, JsonNode.Obj().Set("label", string.IsNullOrWhiteSpace(o.Label) ? o.Value : o.Label).Set("tone", ViewTypes.Name(o.Tone)));
+            return node;
+        }
+
+        private static void WriteMap(JsonOut w, Dictionary<string, string> map)
+        {
+            w.BeginObject();
+            if (map != null)
             {
-                w.BeginArray();
-                foreach (var v in row) w.Value(v);
-                w.EndArray();
+                var keys = new List<string>(map.Keys);
+                keys.Sort(StringComparer.Ordinal);
+                foreach (var k in keys) w.Prop(k, map[k]);
             }
-            w.EndArray();
             w.EndObject();
         }
 
@@ -246,7 +276,7 @@ namespace Exerussus.AppCore.Analytics.Reports
             switch (format)
             {
                 case ExportFormat.CsvZip: WriteCsvZip(data, path, csv ?? new CsvOptions()); break;
-                case ExportFormat.Json: WriteAtomic(path, FullJson(data), false); break;
+                case ExportFormat.Json: WriteAtomic(path, FullJson(data, csv ?? new CsvOptions()), false); break;
                 case ExportFormat.Jsonl: WriteAtomic(path, string.Join("\n", data.RawLines) + "\n", false); break;
             }
         }
@@ -256,111 +286,128 @@ namespace Exerussus.AppCore.Analytics.Reports
         {
             csv ??= new CsvOptions();
             var tables = new List<ReportTable>();
+            var props = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var s in data.Sessions)
+                foreach (var k in s.Props.Keys) props.Add(k);
 
             var sessions = new ReportTable { Id = "sessions", Title = "Сессии" };
-            sessions.Columns.AddRange(new[] { "profile", "session", "start_utc", "duration", "away", "platform", "build", "runs", "events", "ended", "dropped" });
+            sessions.Columns.AddRange(new[] { "profile", "session", "start_utc", "duration", "platform", "build", "runs", "events", "ended", "dropped", "missing" });
+            foreach (var k in props) sessions.Columns.Add("prop_" + k);
             foreach (var s in data.Sessions)
-                sessions.Rows.Add(new[] { S(s.Profile), S(s.Id), S(Iso(s.StartTime)), N(s.Duration), N(s.Away), S(s.Platform), S(s.Build), N(s.Runs.Count), N(s.Events.Count), JsonValue.Of(s.Ended), N(s.Dropped) });
+            {
+                var row = new List<JsonValue> { S(s.Profile), S(s.Id), S(Iso(s.StartTime)), N(s.Duration), S(s.Platform), S(s.Build), N(s.Runs.Count), N(s.Events.Count), JsonValue.Of(s.Ended), N(s.Dropped), N(s.Missing) };
+                foreach (var k in props) row.Add(S(s.Props.TryGetValue(k, out var v) ? v : null));
+                sessions.Rows.Add(row.ToArray());
+            }
             tables.Add(sessions);
 
             var runs = new ReportTable { Id = "runs", Title = "Прогоны" };
-            runs.Columns.AddRange(new[] { "profile", "session", "run", "tag", "result", "finished", "start_utc", "duration", "game_time", "away", "events", "positive", "negative", "platform", "build" });
+            runs.Columns.AddRange(new[] { "profile", "session", "run", "tag", "result", "finished", "start_utc", "duration", "game_time", "events", "positive", "negative", "platform", "build" });
             foreach (var r in data.Runs)
-                runs.Rows.Add(new[] { S(r.Profile), S(r.Session.Id), S(r.Id), S(r.TagOrDash), S(r.Result), JsonValue.Of(r.Finished), S(Iso(r.StartTime)), N(r.Duration), N(r.GameTime), N(r.Away), N(r.Events.Count), N(r.Positive), N(r.Negative), S(r.Session.Platform), S(r.Session.Build) });
+                runs.Rows.Add(new[] { S(r.Profile), S(r.Session.Id), S(r.Id), S(r.TagOrDash), S(r.Result), JsonValue.Of(r.Finished), S(Iso(r.StartTime)), N(r.Duration), N(r.GameTime), N(r.Events.Count), N(r.Positive), N(r.Negative), S(r.Session.Platform), S(r.Session.Build) });
             tables.Add(runs);
 
             var profiles = new ReportTable { Id = "profiles", Title = "Игроки" };
             var results = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var p in data.Profiles)
                 foreach (var k in p.Results.Keys) results.Add(k);
-            profiles.Columns.AddRange(new[] { "profile", "first_seen", "last_seen", "sessions", "runs", "time", "away", "negative", "platform", "build" });
+            profiles.Columns.AddRange(new[] { "profile", "first_seen", "last_seen", "sessions", "runs", "time", "negative", "platform", "build" });
             foreach (var k in results) profiles.Columns.Add("result_" + k);
+            foreach (var k in props) profiles.Columns.Add("prop_" + k);
             foreach (var p in data.Profiles)
             {
-                var row = new List<JsonValue> { S(p.Id), S(Iso(p.First)), S(Iso(p.Last)), N(p.Sessions), N(p.Runs), N(p.Time), N(p.Away), N(p.Negative), S(p.Platform), S(p.Build) };
+                var row = new List<JsonValue> { S(p.Id), S(Iso(p.First)), S(Iso(p.Last)), N(p.Sessions), N(p.Runs), N(p.Time), N(p.Negative), S(p.Platform), S(p.Build) };
                 foreach (var k in results)
                 {
                     p.Results.TryGetValue(k, out var n);
                     row.Add(N(n));
                 }
+                foreach (var k in props) row.Add(S(p.Props.TryGetValue(k, out var v) ? v : null));
                 profiles.Rows.Add(row.ToArray());
             }
             tables.Add(profiles);
 
-            var events = new ReportTable { Id = "events", Title = "События" };
-            events.Columns.AddRange(new[] { "profile", "session", "run", "tag", "s", "t", "g", "session_t" });
-            if (csv.IsoTimes) events.Columns.Add("utc");
-            events.Columns.Add("event");
-            // поле события с именем служебной колонки (tag у app.run.begin…) — с префиксом, без дублей
-            var fixedColumns = new HashSet<string>(events.Columns, StringComparer.Ordinal);
-            foreach (var name in data.FieldNames) events.Columns.Add(fixedColumns.Contains(name) ? "f_" + name : name);
-            foreach (var s in data.Sessions)
+            if (csv.IncludeEvents)
             {
-                foreach (var e in s.Events)
+                var events = new ReportTable { Id = "events", Title = "События" };
+                events.Columns.AddRange(new[] { "profile", "session", "run", "tag", "s", "t", "g", "session_t" });
+                if (csv.IsoTimes) events.Columns.Add("utc");
+                events.Columns.Add("event");
+                // поле события с именем служебной колонки (tag у app.run.begin…) — с префиксом, без дублей
+                var fixedColumns = new HashSet<string>(events.Columns, StringComparer.Ordinal);
+                foreach (var name in data.FieldNames) events.Columns.Add(fixedColumns.Contains(name) ? "f_" + name : name);
+                foreach (var s in data.Sessions)
                 {
-                    var row = new List<JsonValue>
+                    foreach (var e in s.Events)
                     {
-                        S(s.Profile), S(s.Id), S(e.Run?.Id), S(e.Run?.TagOrDash), N(e.Seq), N(e.T), N(e.G), N(e.SessionTime),
-                    };
-                    if (csv.IsoTimes) row.Add(S(s.StartTime != null ? Iso(s.StartTime.Value.AddSeconds(e.SessionTime)) : null));
-                    row.Add(S(e.Key));
-                    foreach (var name in data.FieldNames) row.Add(e.Field(name));
-                    events.Rows.Add(row.ToArray());
+                        var row = new List<JsonValue>
+                        {
+                            S(s.Profile), S(s.Id), S(e.Run?.Id), S(e.Run?.TagOrDash), N(e.Seq), N(e.T), N(e.G), N(e.SessionTime),
+                        };
+                        if (csv.IsoTimes) row.Add(S(Iso(e.Utc)));
+                        row.Add(S(e.Key));
+                        foreach (var name in data.FieldNames) row.Add(e.Field(name));
+                        events.Rows.Add(row.ToArray());
+                    }
                 }
+                tables.Add(events);
             }
-            tables.Add(events);
 
-            if (data.Intervals.Count > 0)
+            // представления: таблица на представление; по тегам — одна таблица с тегом первой колонкой
+            foreach (var v in data.ViewResults)
             {
-                var intervals = new ReportTable { Id = "intervals", Title = "Интервалы" };
-                intervals.Columns.AddRange(new[] { "profile", "session", "run", "tag", "interval", "subject", "start", "end", "duration", "closed" });
-                foreach (var i in data.Intervals)
-                    intervals.Rows.Add(new[] { S(i.Session.Profile), S(i.Session.Id), S(i.Run?.Id), S(i.Run?.TagOrDash), S(i.Name), S(i.Subject), N(i.Start), N(i.End), N(i.Duration), JsonValue.Of(i.Closed) });
-                tables.Add(intervals);
+                if (!v.View.Export) continue;
+                tables.AddRange(v.Tables);
             }
 
-            // сводки по субъектам и воронки — все теги в одной таблице, тег первой колонкой
-            var subjectTables = new Dictionary<string, ReportTable>(StringComparer.Ordinal);
-            var funnels = new Dictionary<string, ReportTable>(StringComparer.Ordinal);
+            // по тегам: колонки у тегов могут различаться (мера есть не у всех) — объединение колонок, ячейки по id
+            var byTag = new Dictionary<string, ReportTable>(StringComparer.Ordinal);
+            var parts = new Dictionary<string, List<KeyValuePair<string, ReportTable>>>(StringComparer.Ordinal);
+            var order = new List<string>();
             foreach (var tag in data.Tags)
-            {
-                foreach (var t in tag.Tables)
+                foreach (var v in tag.Views)
                 {
-                    if (!subjectTables.TryGetValue(t.Id, out var all))
+                    if (!v.View.Export) continue;
+                    foreach (var t in v.Tables)
                     {
-                        all = new ReportTable { Id = t.Id, Title = t.Title };
-                        all.Add("tag", "Тег");
-                        for (var i = 0; i < t.Columns.Count; i++) all.Add(t.Columns[i], i < t.Labels.Count ? t.Labels[i] : t.Columns[i]);
-                        subjectTables.Add(t.Id, all);
-                        tables.Add(all);
+                        if (t.Id.EndsWith("_intervals", StringComparison.Ordinal)) continue; // интервалы уже есть целиком
+                        var id = t.Id + "_by_tag";
+                        if (!parts.TryGetValue(id, out var list))
+                        {
+                            parts[id] = list = new List<KeyValuePair<string, ReportTable>>();
+                            order.Add(id);
+                        }
+
+                        list.Add(new KeyValuePair<string, ReportTable>(tag.Tag, t));
+                    }
+                }
+
+            foreach (var id in order)
+            {
+                var list = parts[id];
+                var all = new ReportTable { Id = id, Title = list[0].Value.Title + " — по тегам" };
+                all.Add("tag", "Тег");
+                var index = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var pair in list)
+                    for (var i = 0; i < pair.Value.Columns.Count; i++)
+                    {
+                        var c = pair.Value.Columns[i];
+                        if (index.ContainsKey(c)) continue;
+                        index[c] = all.Columns.Count;
+                        all.Add(c, i < pair.Value.Labels.Count ? pair.Value.Labels[i] : c);
                     }
 
-                    foreach (var row in t.Rows)
+                foreach (var pair in list)
+                    foreach (var row in pair.Value.Rows)
                     {
-                        var r = new JsonValue[row.Length + 1];
-                        r[0] = S(tag.Tag);
-                        Array.Copy(row, 0, r, 1, row.Length);
+                        var r = new JsonValue[all.Columns.Count];
+                        r[0] = S(pair.Key);
+                        for (var i = 0; i < row.Length && i < pair.Value.Columns.Count; i++) r[index[pair.Value.Columns[i]]] = row[i];
                         all.Rows.Add(r);
                     }
-                }
 
-                foreach (var f in tag.Funnels)
-                {
-                    var id = "funnel_" + f.Interval;
-                    if (!funnels.TryGetValue(id, out var all))
-                    {
-                        all = new ReportTable { Id = id, Title = "Воронка " + f.Interval };
-                        all.Columns.AddRange(new[] { "tag", "step", f.SubjectField, "runs", "reached", "closed", "median_duration" });
-                        funnels.Add(id, all);
-                        tables.Add(all);
-                    }
-
-                    for (var i = 0; i < f.Steps.Count; i++)
-                    {
-                        var st = f.Steps[i];
-                        all.Rows.Add(new[] { S(tag.Tag), N(i + 1), S(st.Subject), N(f.Runs), N(st.Reached), N(st.Closed), N(st.MedianDuration) });
-                    }
-                }
+                byTag[id] = all;
+                tables.Add(all);
             }
 
             return tables;
@@ -386,14 +433,7 @@ namespace Exerussus.AppCore.Analytics.Reports
 
                     var catalog = zip.CreateEntry("catalog.json", CompressionLevel.Optimal);
                     using (var w = new StreamWriter(catalog.Open(), new UTF8Encoding(false)))
-                    {
-                        var sb = new StringBuilder();
-                        var json = new JsonOut(sb).BeginObject();
-                        WriteMeta(json, data);
-                        WriteCatalog(json, data);
-                        json.EndObject();
-                        w.Write(sb.ToString());
-                    }
+                        w.Write(CatalogJson(data));
                 }
 
                 Replace(temp, path);
@@ -441,14 +481,28 @@ namespace Exerussus.AppCore.Analytics.Reports
             return quote ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
         }
 
-        private static string FullJson(ReportData data)
+        /// <summary>catalog.json: мета выгрузки + каталог (события, классификация, представления).</summary>
+        public static string CatalogJson(ReportData data)
+        {
+            var sb = new StringBuilder();
+            var json = new JsonOut(sb).BeginObject();
+            WriteMeta(json, data);
+            json.Prop("catalog", CatalogNode(data));
+            json.EndObject();
+            return sb.ToString();
+        }
+
+        private static string FullJson(ReportData data, CsvOptions csv)
         {
             var sb = new StringBuilder(1 << 16);
             var w = new JsonOut(sb).BeginObject();
             WriteMeta(w, data);
-            WriteCatalog(w, data);
+            w.Prop("catalog", CatalogNode(data));
+            w.Name("views").BeginObject();
+            foreach (var v in data.ViewResults) w.Name(v.View.Id ?? "?").Value(v.Data);
+            w.EndObject();
             w.Name("tables").BeginObject();
-            foreach (var table in Tables(data))
+            foreach (var table in Tables(data, csv))
             {
                 w.Name(table.Id).BeginArray();
                 foreach (var row in table.Rows)

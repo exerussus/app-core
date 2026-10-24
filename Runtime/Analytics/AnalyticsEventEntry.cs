@@ -4,14 +4,14 @@ using UnityEngine;
 namespace Exerussus.AppCore.Analytics
 {
     /// <summary>
-    /// Событие каталога. Ключ — путь по точкам (<c>Game.Module.Focus</c>): он пишется в данные строкой,
+    /// Событие каталога. Ключ — путь по точкам (<c>Level.Enemy.Killed</c>): он пишется в данные строкой,
     /// поэтому переименование ключа — это новое событие для аналитики. Номер (<c>AppEvents.….Id</c>) —
     /// только индекс текущего билда.
     /// </summary>
     [Serializable]
     public struct AnalyticsEventEntry
     {
-        [Tooltip("Путь по точкам: Game.Module.Focus. До 5 уровней.")]
+        [Tooltip("Путь по точкам: Level.Enemy.Killed. До 5 уровней.")]
         public string key;
 
         [Tooltip("Название для людей.")]
@@ -25,7 +25,7 @@ namespace Exerussus.AppCore.Analytics
 
         public AnalyticsField[] fields;
 
-        [Tooltip("Как событие читает отчёт аналитики (Nexus → Аналитика → Отчёт). На запись и данные не влияет.")]
-        public AnalyticsReportInfo report;
+        // Куда событие входит в отчёте — в файле представлений (Editor, Assets/App/Settings/Editor/AnalyticsReport.json):
+        // в сборку он не попадает и памяти рантайма не занимает.
     }
 }

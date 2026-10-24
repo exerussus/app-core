@@ -23,6 +23,9 @@ namespace Exerussus.AppCore.Analytics.Editor
                 var settings = Ensure(false);
                 if (settings == null) return;
 
+                // роли 4.8 живут в YAML ассета до первого пересохранения — перенести их раньше, чем ассет сохранится
+                AnalyticsReportStore.MigrateLegacy();
+
                 // порядок в ассете = Id в рантайме: несортированный каталог сначала записать отсортированным
                 if (!AnalyticsCatalog.IsSorted(settings.Entries)) AnalyticsCatalog.Commit(settings, settings.Entries, "Сортировка каталога аналитики");
                 else AnalyticsCatalog.Generate(settings.Entries);

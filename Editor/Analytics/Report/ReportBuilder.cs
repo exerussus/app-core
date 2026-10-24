@@ -17,12 +17,71 @@ namespace Exerussus.AppCore.Analytics.Reports
     /// </remarks>
     public static class ReportBuilder
     {
+        /// <summary>Итог прогона без app.run.end (вылет, закрыли вкладку).</summary>
         public const string Unfinished = "unfinished";
+        /// <summary>Итог прогона, прерванного новым BeginRun (пишет AppAnalytics).</summary>
+        public const string Interrupted = "interrupted";
+        /// <summary>Прогон закончен без итога (EndRun()).</summary>
+        public const string NoResult = "—";
+
+        /// <summary>Больше — испорченное время (около 30 лет в секундах).</summary>
+        public const double MaxSeconds = 1e9;
+
+        private static double Sane(double v) => double.IsNaN(v) || Math.Abs(v) < MaxSeconds ? v : double.NaN;
 
         public static ReportData Build(IEnumerable<string> sources, ReportCatalog catalog, ReportOptions options = null)
         {
             options ??= new ReportOptions();
             catalog ??= new ReportCatalog();
+            var list = new List<string>();
+            foreach (var s in sources ?? Array.Empty<string>()) list.Add(s);
+
+            var data = BuildCore(list, catalog, options, true);
+
+            // «сравнить с прошлым периодом»: тот же расчёт на периоде той же длины перед выбранным
+            if (!options.SkipViews && NeedsPrevious(catalog, options) && options.Filter.From != null && options.Filter.To != null)
+            {
+                var length = options.Filter.To.Value - options.Filter.From.Value;
+                var prev = Clone(options);
+                prev.Filter.From = options.Filter.From.Value - length - TimeSpan.FromTicks(1);
+                prev.Filter.To = options.Filter.From.Value - TimeSpan.FromTicks(1);
+                var previous = BuildCore(list, catalog, prev, false);
+                if (previous.Sessions.Count > 0)
+                {
+                    data.Previous = previous;
+                    previous.PeriodFrom = prev.Filter.From;
+                    previous.PeriodTo = prev.Filter.To;
+                }
+            }
+
+            // профили уже обезличены в BuildCore — представления считаются по хэшам
+            if (!options.SkipViews) ReportViews.Compute(data);
+
+            return data;
+        }
+
+        private static bool NeedsPrevious(ReportCatalog catalog, ReportOptions options)
+        {
+            foreach (var v in (catalog.Config ?? new ReportConfig()).EffectiveViews())
+                if (v.ComparePrevious && (options.Views.Count == 0 || options.Views.Contains(v.Id))) return true;
+            return false;
+        }
+
+        private static ReportOptions Clone(ReportOptions o)
+        {
+            var c = new ReportOptions { Anonymize = o.Anonymize, Title = o.Title, TimeZone = o.TimeZone, Compare = o.Compare, Where = o.Where };
+            c.Views.UnionWith(o.Views);
+            c.GroupBy.AddRange(o.GroupBy);
+            c.Aggs.AddRange(o.Aggs);
+            c.Filter.Builds.UnionWith(o.Filter.Builds);
+            c.Filter.Platforms.UnionWith(o.Filter.Platforms);
+            c.Filter.Tags.UnionWith(o.Filter.Tags);
+            c.Filter.Profiles.UnionWith(o.Filter.Profiles);
+            return c;
+        }
+
+        private static ReportData BuildCore(List<string> sources, ReportCatalog catalog, ReportOptions options, bool main)
+        {
 
             var data = new ReportData
             {
@@ -32,7 +91,7 @@ namespace Exerussus.AppCore.Analytics.Reports
             };
 
             var files = new List<string>();
-            foreach (var source in sources ?? Array.Empty<string>())
+            foreach (var source in sources)
             {
                 if (string.IsNullOrWhiteSpace(source)) continue;
                 data.Sources.Add(source);
@@ -77,14 +136,28 @@ namespace Exerussus.AppCore.Analytics.Reports
             }
 
             Digest(data);
+            foreach (var s in data.Sessions)
+                if (s.StartTime != null && (!data.FirstSeen.TryGetValue(s.Profile, out var f) || s.StartTime < f)) data.FirstSeen[s.Profile] = s.StartTime.Value;
             ApplyFilter(data, options.Filter);
             CollectFieldNames(data);
-            BuildIntervals(data);
             BuildProfiles(data);
             BuildTags(data);
+            Period(data);
 
             if (options.Anonymize) Anonymize(data);
+            if (!main && !options.SkipViews) ReportViews.Compute(data, false);
             return data;
+        }
+
+        private static void Period(ReportData data)
+        {
+            foreach (var s in data.Sessions)
+            {
+                if (s.StartTime == null) continue;
+                if (data.PeriodFrom == null || s.StartTime < data.PeriodFrom) data.PeriodFrom = s.StartTime;
+                var end = ReportSession.SafeAdd(s.StartTime, s.Duration) ?? s.StartTime.Value;
+                if (data.PeriodTo == null || end > data.PeriodTo) data.PeriodTo = end;
+            }
         }
 
         // ============================================================ чтение
@@ -114,6 +187,7 @@ namespace Exerussus.AppCore.Analytics.Reports
             // каждая строка-заголовок открывает новый пакет
             ReportSession session = null;
             ReportRun run = null;
+            var props = ReportSession.NoProps;
             var skip = false;
             var headers = 0;
 
@@ -142,6 +216,7 @@ namespace Exerussus.AppCore.Analytics.Reports
                     data.RawLines.Add(raw);
                     session = SessionOf(fields, sessions, data);
                     run = RunOf(fields, session, runs);
+                    props = PropsOf(fields, session);
                     continue;
                 }
 
@@ -153,21 +228,30 @@ namespace Exerussus.AppCore.Analytics.Reports
                     continue;
                 }
 
-                data.RawLines.Add(raw);
-
                 var seq = Get(fields, "s").AsNumber();
-                if (double.IsNaN(seq)) continue;
+                if (double.IsNaN(seq) || Math.Abs(seq) > 9e15) continue;
                 var s = (long)seq;
-                if (!session.Seqs.Add(s)) continue;
+                if (!session.Seqs.Add(s)) continue; // дубль события — и в JSONL не попадает
+
+                // испорченное время (переполнение, мусор) — событие считается битым: иначе даты отчёта не строятся
+                var t = Get(fields, "t").AsNumber();
+                if (!double.IsNaN(t) && !(Math.Abs(t) < MaxSeconds))
+                {
+                    data.BrokenLines++;
+                    continue;
+                }
+
+                data.RawLines.Add(raw);
 
                 var e = new ReportEvent
                 {
                     Session = session,
                     Run = run,
                     Seq = s,
-                    T = Get(fields, "t").AsNumber(),
-                    G = Get(fields, "g").AsNumber(),
+                    T = t,
+                    G = Sane(Get(fields, "g").AsNumber()),
                     Key = Get(fields, "e").AsText() ?? "?",
+                    Props = props,
                 };
                 if (double.IsNaN(e.T)) e.T = 0;
                 e.Info = data.Catalog.Find(e.Key);
@@ -176,6 +260,25 @@ namespace Exerussus.AppCore.Analytics.Reports
                 {
                     if (f.Key == "s" || f.Key == "t" || f.Key == "g" || f.Key == "e") continue;
                     e.Fields.Add(f);
+                }
+
+                // свойство изменилось внутри пакета: следующие события пакета — уже с новым значением
+                if (e.Key == "app.property")
+                {
+                    var name = e.Field("name").AsText();
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        var value = e.Field("value").AsText();
+                        var next = new Dictionary<string, string>(props, StringComparer.Ordinal);
+                        if (value == null) next.Remove(name);
+                        else
+                        {
+                            next[name] = value;
+                            session.Props[name] = value;
+                        }
+
+                        props = next;
+                    }
                 }
 
                 session.Events.Add(e);
@@ -217,6 +320,24 @@ namespace Exerussus.AppCore.Analytics.Reports
             return s;
         }
 
+        /// <summary>Свойства пакета: поля заголовка «p.имя» (AppAnalytics.SetProperty). Без свойств — общий пустой словарь.</summary>
+        private static Dictionary<string, string> PropsOf(List<KeyValuePair<string, JsonValue>> header, ReportSession session)
+        {
+            Dictionary<string, string> props = null;
+            foreach (var f in header)
+            {
+                if (f.Key.Length < 3 || !f.Key.StartsWith("p.", StringComparison.Ordinal)) continue;
+                var value = f.Value.AsText();
+                if (value == null) continue;
+                props ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                var name = f.Key.Substring(2);
+                props[name] = value;
+                session.Props[name] = value;
+            }
+
+            return props ?? ReportSession.NoProps;
+        }
+
         private static ReportRun RunOf(List<KeyValuePair<string, JsonValue>> header, ReportSession session, Dictionary<string, ReportRun> runs)
         {
             var id = Get(header, "run").AsText();
@@ -229,7 +350,7 @@ namespace Exerussus.AppCore.Analytics.Reports
                 session.Runs.Add(run);
             }
 
-            var start = Get(header, "runStart").AsNumber();
+            var start = Sane(Get(header, "runStart").AsNumber());
             if (!double.IsNaN(start) && double.IsNaN(run.Start)) run.Start = start;
             return run;
         }
@@ -280,15 +401,6 @@ namespace Exerussus.AppCore.Analytics.Reports
                             }
                             break;
 
-                        case "app.focus.gained":
-                            var away = e.Field("away").AsNumber();
-                            if (!double.IsNaN(away) && away > 0)
-                            {
-                                s.Away += away;
-                                if (e.Run != null) e.Run.Away += away;
-                            }
-                            break;
-
                         case "app.session.end":
                             s.Ended = true;
                             break;
@@ -299,15 +411,34 @@ namespace Exerussus.AppCore.Analytics.Reports
                             break;
                     }
 
-                    if (e.Run != null && e.Info != null && e.Info.Role == ReportRole.Mark)
-                    {
-                        if (e.Info.Tone == ReportTone.Positive) e.Run.Positive++;
-                        else if (e.Info.Tone == ReportTone.Negative) e.Run.Negative++;
-                    }
+                }
+
+                // пропуски номеров: события между первым и последним, которых нет (потерянные пакеты)
+                if (s.Events.Count > 1)
+                {
+                    var span = s.Events[s.Events.Count - 1].Seq - s.Events[0].Seq + 1;
+                    s.Missing = Math.Max(0, span - s.Events.Count);
                 }
 
                 foreach (var run in s.Runs)
                 {
+                    // игровые часы: событие без g в прогоне с часами (часы сняты перед EndRun, событие до SetGameClock)
+                    // получает последнее известное g — иначе ось смешивает игровое и реальное время
+                    var hasGame = false;
+                    foreach (var e in run.Events)
+                        if (!double.IsNaN(e.G)) hasGame = true;
+                    if (hasGame)
+                    {
+                        var lastG = double.NaN;
+                        foreach (var e in run.Events)
+                            if (!double.IsNaN(e.G)) { lastG = e.G; break; }
+                        foreach (var e in run.Events)
+                        {
+                            if (double.IsNaN(e.G)) e.G = lastG;
+                            else lastG = e.G;
+                        }
+                    }
+
                     var lastT = 0.0;
                     foreach (var e in run.Events)
                     {
@@ -322,7 +453,7 @@ namespace Exerussus.AppCore.Analytics.Reports
                     }
                     else if (string.IsNullOrEmpty(run.Result))
                     {
-                        run.Result = "—";
+                        run.Result = NoResult;
                     }
                 }
             }
@@ -401,80 +532,6 @@ namespace Exerussus.AppCore.Analytics.Reports
             data.RawLines.AddRange(kept);
         }
 
-        // ============================================================ интервалы
-
-        private static void BuildIntervals(ReportData data)
-        {
-            var open = new Dictionary<string, ReportInterval>(StringComparer.Ordinal);
-
-            foreach (var s in data.Sessions)
-            {
-                // прогоны и «вне прогона» — отдельные области: интервал не переходит через границу прогона
-                ReportRun scope = null;
-                open.Clear();
-                var lastAxis = 0.0;
-
-                foreach (var e in s.Events)
-                {
-                    if (e.Run != scope)
-                    {
-                        CloseAll(open, lastAxis, data);
-                        scope = e.Run;
-                        lastAxis = 0;
-                    }
-
-                    var axis = scope != null ? e.Axis : e.T;
-                    if (axis > lastAxis) lastAxis = axis;
-
-                    var info = e.Info;
-                    if (info == null || string.IsNullOrEmpty(info.Interval)) continue;
-                    if (info.Role != ReportRole.Begin && info.Role != ReportRole.End) continue;
-
-                    var subject = string.IsNullOrEmpty(info.Subject) ? null : e.Field(info.Subject).AsText();
-                    var key = info.Interval + "\u0001" + subject;
-
-                    if (info.Role == ReportRole.Begin)
-                    {
-                        // повторное начало без конца — прошлое закрывается этим моментом
-                        if (open.TryGetValue(key, out var previous))
-                        {
-                            previous.End = axis;
-                            data.Intervals.Add(previous);
-                        }
-
-                        open[key] = new ReportInterval { Session = s, Run = scope, Name = info.Interval, Subject = subject, Start = axis, End = axis };
-                        continue;
-                    }
-
-                    if (!open.TryGetValue(key, out var interval)) continue; // конец без начала
-                    open.Remove(key);
-                    interval.End = axis;
-                    interval.Closed = true;
-                    interval.Measure = string.IsNullOrEmpty(info.Measure) ? double.NaN : e.Field(info.Measure).AsNumber();
-                    data.Intervals.Add(interval);
-                }
-
-                CloseAll(open, lastAxis, data);
-            }
-
-            data.Intervals.Sort((a, b) =>
-            {
-                var c = string.CompareOrdinal(a.Session.Id, b.Session.Id);
-                return c != 0 ? c : a.Start.CompareTo(b.Start);
-            });
-        }
-
-        private static void CloseAll(Dictionary<string, ReportInterval> open, double end, ReportData data)
-        {
-            foreach (var interval in open.Values)
-            {
-                interval.End = Math.Max(interval.Start, end);
-                data.Intervals.Add(interval);
-            }
-
-            open.Clear();
-        }
-
         // ============================================================ профили
 
         private static void BuildProfiles(ReportData data)
@@ -491,21 +548,20 @@ namespace Exerussus.AppCore.Analytics.Reports
 
                 p.Sessions++;
                 p.Time += s.Duration;
-                p.Away += s.Away;
+                foreach (var prop in s.Props) p.Props[prop.Key] = prop.Value;
                 if (!string.IsNullOrEmpty(s.Platform)) p.Platform = s.Platform;
                 if (!string.IsNullOrEmpty(s.Build)) p.Build = s.Build;
 
                 if (s.StartTime != null)
                 {
                     if (p.First == null || s.StartTime < p.First) p.First = s.StartTime;
-                    var end = s.StartTime.Value.AddSeconds(s.Duration);
+                    var end = ReportSession.SafeAdd(s.StartTime, s.Duration) ?? s.StartTime.Value;
                     if (p.Last == null || end > p.Last) p.Last = end;
                 }
 
                 foreach (var run in s.Runs)
                 {
                     p.Runs++;
-                    p.Negative += run.Negative;
                     p.Results.TryGetValue(run.Result, out var n);
                     p.Results[run.Result] = n + 1;
                 }
@@ -514,7 +570,7 @@ namespace Exerussus.AppCore.Analytics.Reports
             data.Profiles.Sort((a, b) => Nullable.Compare(b.Last, a.Last));
         }
 
-        // ============================================================ теги: таблицы и воронки
+        // ============================================================ теги
 
         private static void BuildTags(ReportData data)
         {
@@ -535,263 +591,6 @@ namespace Exerussus.AppCore.Analytics.Reports
             }
 
             data.Tags.Sort((a, b) => b.Runs.Count != a.Runs.Count ? b.Runs.Count.CompareTo(a.Runs.Count) : string.CompareOrdinal(a.Tag, b.Tag));
-
-            var intervalsByRun = new Dictionary<ReportRun, List<ReportInterval>>();
-            foreach (var interval in data.Intervals)
-            {
-                if (interval.Run == null) continue;
-                if (!intervalsByRun.TryGetValue(interval.Run, out var list)) intervalsByRun[interval.Run] = list = new List<ReportInterval>();
-                list.Add(interval);
-            }
-
-            foreach (var tag in data.Tags)
-            {
-                foreach (var field in data.Catalog.SubjectFields())
-                {
-                    var table = SubjectTable(data.Catalog, field, tag, intervalsByRun);
-                    if (table.Rows.Count > 0) tag.Tables.Add(table);
-                }
-
-                foreach (var name in data.Catalog.Intervals())
-                {
-                    var funnel = Funnel(data.Catalog, name, tag, intervalsByRun);
-                    if (funnel != null && funnel.Steps.Count > 0) tag.Funnels.Add(funnel);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Сводка по полю-субъекту (module…): строка на значение, колонки — счётчики событий с этим субъектом,
-        /// медиана и p90 их мер, число и длительности интервалов.
-        /// </summary>
-        private static ReportTable SubjectTable(ReportCatalog catalog, string field, ReportTag tag, Dictionary<ReportRun, List<ReportInterval>> intervalsByRun)
-        {
-            var events = new List<ReportEventInfo>();
-            // метки и состояния — счётчик; конец интервала — только ради меры (число интервалов считают колонки интервала)
-            foreach (var info in catalog.Events)
-            {
-                if (!info.HasRole || info.Subject != field || info.Role == ReportRole.Begin) continue;
-                if (info.Role == ReportRole.End && string.IsNullOrEmpty(info.Measure)) continue;
-                events.Add(info);
-            }
-
-            var intervals = new List<string>();
-            foreach (var info in catalog.Events)
-                if (info.Role == ReportRole.Begin && info.Subject == field && !string.IsNullOrEmpty(info.Interval) && !intervals.Contains(info.Interval))
-                    intervals.Add(info.Interval);
-
-            var table = new ReportTable { Id = "subjects_" + field, Title = field };
-            table.Add(field, field);
-            table.Add("runs", "Прогонов");
-
-            // машинные имена — для CSV, подписи — из каталога (название события, окраска метки)
-            var shortNames = ShortNames(events);
-            foreach (var info in events)
-            {
-                var id = shortNames[info.Key];
-                var title = string.IsNullOrWhiteSpace(info.Title) ? id : info.Title.Trim();
-                if (info.Role != ReportRole.End)
-                {
-                    var mark = info.Tone == ReportTone.Positive ? "✓ " : info.Tone == ReportTone.Negative ? "✗ " : string.Empty;
-                    table.Add(id + "_count", mark + title);
-                }
-
-                if (!string.IsNullOrEmpty(info.Measure))
-                {
-                    table.Add(id + "_" + info.Measure + "_median", info.Measure + ", медиана");
-                    table.Add(id + "_" + info.Measure + "_p90", info.Measure + ", p90");
-                }
-            }
-
-            foreach (var name in intervals)
-            {
-                table.Add(name + "_count", name + ": заходов");
-                table.Add(name + "_closed", name + ": закрыто");
-                table.Add(name + "_median", name + ": медиана, с");
-                table.Add(name + "_per_run", name + ": на прогон, с");
-            }
-
-            // значения субъекта в порядке первого появления
-            var order = new List<string>();
-            var runsWith = new Dictionary<string, HashSet<ReportRun>>(StringComparer.Ordinal);
-            var counts = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-            var measures = new Dictionary<string, Dictionary<string, List<double>>>(StringComparer.Ordinal);
-
-            foreach (var run in tag.Runs)
-            {
-                foreach (var e in run.Events)
-                {
-                    if (e.Info == null || e.Info.Subject != field) continue;
-                    var subject = e.Field(field).AsText();
-                    if (subject == null) continue;
-
-                    if (!runsWith.TryGetValue(subject, out var set))
-                    {
-                        runsWith[subject] = set = new HashSet<ReportRun>();
-                        counts[subject] = new Dictionary<string, int>(StringComparer.Ordinal);
-                        measures[subject] = new Dictionary<string, List<double>>(StringComparer.Ordinal);
-                        order.Add(subject);
-                    }
-
-                    set.Add(run);
-                    counts[subject].TryGetValue(e.Key, out var n);
-                    counts[subject][e.Key] = n + 1;
-
-                    if (!string.IsNullOrEmpty(e.Info.Measure))
-                    {
-                        var v = e.Field(e.Info.Measure).AsNumber();
-                        if (!double.IsNaN(v))
-                        {
-                            if (!measures[subject].TryGetValue(e.Key, out var list)) measures[subject][e.Key] = list = new List<double>();
-                            list.Add(v);
-                        }
-                    }
-                }
-            }
-
-            foreach (var subject in order)
-            {
-                var row = new List<JsonValue> { JsonValue.Of(subject), JsonValue.Of(runsWith[subject].Count) };
-                foreach (var info in events)
-                {
-                    if (info.Role != ReportRole.End)
-                    {
-                        counts[subject].TryGetValue(info.Key, out var n);
-                        row.Add(JsonValue.Of(n));
-                    }
-
-                    if (!string.IsNullOrEmpty(info.Measure))
-                    {
-                        measures[subject].TryGetValue(info.Key, out var list);
-                        row.Add(Num(Stats.Median(list)));
-                        row.Add(Num(Stats.Percentile(list, 0.9)));
-                    }
-                }
-
-                foreach (var name in intervals)
-                {
-                    var durations = new List<double>();
-                    var closed = 0;
-                    var runs = 0;
-                    var total = 0.0;
-                    foreach (var run in tag.Runs)
-                    {
-                        if (!intervalsByRun.TryGetValue(run, out var list)) continue;
-                        var any = false;
-                        foreach (var interval in list)
-                        {
-                            if (interval.Name != name || interval.Subject != subject) continue;
-                            durations.Add(interval.Duration);
-                            total += interval.Duration;
-                            if (interval.Closed) closed++;
-                            any = true;
-                        }
-
-                        if (any) runs++;
-                    }
-
-                    row.Add(JsonValue.Of(durations.Count));
-                    row.Add(JsonValue.Of(closed));
-                    row.Add(Num(Stats.Median(durations)));
-                    row.Add(runs > 0 ? JsonValue.Of(Math.Round(total / runs, 3)) : JsonValue.Null);
-                }
-
-                table.Rows.Add(row.ToArray());
-            }
-
-            return table;
-        }
-
-        /// <summary>Субъекты интервала по медианному порядку первого начала в прогоне: сколько прогонов дошло и закрыло.</summary>
-        private static ReportFunnel Funnel(ReportCatalog catalog, string name, ReportTag tag, Dictionary<ReportRun, List<ReportInterval>> intervalsByRun)
-        {
-            string field = null;
-            foreach (var info in catalog.Events)
-                if (info.Role == ReportRole.Begin && info.Interval == name) field = info.Subject;
-            if (string.IsNullOrEmpty(field)) return null;
-
-            var funnel = new ReportFunnel { Interval = name, SubjectField = field, Runs = tag.Runs.Count };
-            var reached = new Dictionary<string, int>(StringComparer.Ordinal);
-            var closed = new Dictionary<string, int>(StringComparer.Ordinal);
-            var positions = new Dictionary<string, List<double>>(StringComparer.Ordinal);
-            var durations = new Dictionary<string, List<double>>(StringComparer.Ordinal);
-
-            foreach (var run in tag.Runs)
-            {
-                if (!intervalsByRun.TryGetValue(run, out var list)) continue;
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                var done = new HashSet<string>(StringComparer.Ordinal);
-                var index = 0;
-                foreach (var interval in list)
-                {
-                    if (interval.Name != name || interval.Subject == null) continue;
-                    if (seen.Add(interval.Subject))
-                    {
-                        if (!positions.TryGetValue(interval.Subject, out var p)) positions[interval.Subject] = p = new List<double>();
-                        p.Add(index++);
-                    }
-
-                    if (interval.Closed && done.Add(interval.Subject))
-                    {
-                        if (!durations.TryGetValue(interval.Subject, out var d)) durations[interval.Subject] = d = new List<double>();
-                        d.Add(interval.Duration);
-                    }
-                }
-
-                foreach (var s in seen)
-                {
-                    reached.TryGetValue(s, out var n);
-                    reached[s] = n + 1;
-                }
-
-                foreach (var s in done)
-                {
-                    closed.TryGetValue(s, out var n);
-                    closed[s] = n + 1;
-                }
-            }
-
-            var subjects = new List<string>(reached.Keys);
-            subjects.Sort((a, b) =>
-            {
-                var c = Stats.Median(positions[a]).CompareTo(Stats.Median(positions[b]));
-                return c != 0 ? c : reached[b].CompareTo(reached[a]);
-            });
-
-            foreach (var s in subjects)
-            {
-                closed.TryGetValue(s, out var c);
-                durations.TryGetValue(s, out var d);
-                funnel.Steps.Add(new ReportFunnelStep { Subject = s, Reached = reached[s], Closed = c, MedianDuration = Stats.Median(d) });
-            }
-
-            return funnel;
-        }
-
-        private static Dictionary<string, string> ShortNames(List<ReportEventInfo> events)
-        {
-            var last = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var info in events)
-            {
-                var s = LastSegment(info.Key);
-                last.TryGetValue(s, out var n);
-                last[s] = n + 1;
-            }
-
-            var result = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var info in events)
-            {
-                var s = LastSegment(info.Key);
-                result[info.Key] = last[s] > 1 ? info.Key : s;
-            }
-
-            return result;
-        }
-
-        private static string LastSegment(string key)
-        {
-            var i = key.LastIndexOf('.');
-            return i >= 0 ? key.Substring(i + 1) : key;
         }
 
         private static string JsonQuoted(string s)
@@ -825,6 +624,9 @@ namespace Exerussus.AppCore.Analytics.Reports
             }
 
             foreach (var s in data.Sessions) s.Profile = Hash(s.Profile);
+            var firstSeen = new List<KeyValuePair<string, DateTime>>(data.FirstSeen);
+            data.FirstSeen.Clear();
+            foreach (var pair in firstSeen) data.FirstSeen[Hash(pair.Key)] = pair.Value;
             foreach (var p in data.Profiles) p.Id = Hash(p.Id);
 
             // «previous» у app.profile.new — тоже профиль

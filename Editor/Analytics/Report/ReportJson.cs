@@ -317,6 +317,37 @@ namespace Exerussus.AppCore.Analytics.Reports
             }
         }
 
+        /// <summary>Узел дерева JSON (с экранированием для &lt;script&gt;).</summary>
+        public JsonOut Value(JsonNode n)
+        {
+            if (n == null)
+            {
+                Separator();
+                _sb.Append("null");
+                return this;
+            }
+
+            switch (n.Kind)
+            {
+                case JsonNodeKind.String: return Value(n.Text);
+                case JsonNodeKind.Number: return Value(n.Number);
+                case JsonNodeKind.Bool: return Value(n.Flag);
+                case JsonNodeKind.Array:
+                    BeginArray();
+                    foreach (var item in n.Items) Value(item);
+                    return EndArray();
+                case JsonNodeKind.Object:
+                    BeginObject();
+                    foreach (var p in n.Props) Name(p.Key).Value(p.Value);
+                    return EndObject();
+                default:
+                    Separator();
+                    _sb.Append("null");
+                    return this;
+            }
+        }
+
+        public JsonOut Prop(string name, JsonNode v) => Name(name).Value(v);
         public JsonOut Prop(string name, string v) => Name(name).Value(v);
         public JsonOut Prop(string name, double v) => Name(name).Value(v);
         public JsonOut Prop(string name, long v) => Name(name).Value(v);
