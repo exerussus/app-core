@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Отчёт аналитики</title>
+<style>
+:root{
+  --bg:#070C11;--panel:#0D151C;--inset:#0A1117;--line:#1D2B36;--line2:#15212A;
+  --text:#D3E4EC;--dim:#A9BDC8;--faint:#8FA5B2;--mute:#6F8794;
+  --accent:#5CC8DC;--fill:#2BA3BA;--warn:#E8A33D;--warnText:#F0BA65;--gray:#3A4B57;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent);text-decoration:none}a:hover{color:#8EDDEB;text-decoration:underline}
+button,input,select{font:inherit;color:inherit}
+.wrap{max-width:1400px;margin:0 auto;padding:24px 28px 56px;display:flex;flex-direction:column;gap:18px}
+.mono{font-family:var(--mono)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
+.cap{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0}
+h1{margin:0;font-size:24px;font-weight:600}h2{margin:0;font-size:16px;font-weight:600}h3{margin:0;font-size:14px;font-weight:600}
+.muted{color:var(--faint)}.dim{color:var(--dim)}
+header.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.brand{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:.08em;color:var(--accent)}
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px}
+nav.tabs a{display:inline-flex;align-items:center;min-height:40px;padding:0 14px;border-radius:8px;color:var(--dim)}
+nav.tabs a:hover{background:#111C25;color:var(--text);text-decoration:none}
+nav.tabs a.on{background:#10303A;color:var(--text)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border:1px solid var(--line);border-radius:14px;font-size:12px;color:var(--dim);background:var(--inset)}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.kpi{display:flex;flex-direction:column;gap:6px;padding:14px 16px}
+.kpi .v{font-family:var(--mono);font-size:26px;font-weight:600;color:#EAF4F8}
+.kpi .h{font-size:12px;color:var(--faint)}
+.row{display:flex;flex-wrap:wrap;gap:12px}
+.grow{flex:999 1 620px;min-width:0}.side{flex:1 1 360px;min-width:0}
+.tablebox{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-weight:500;color:var(--faint);text-align:left;font-size:12px;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:var(--text)}
+td{padding:9px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+tr.click{cursor:pointer}tr.click:hover td{background:#0F1C24}
+tr.sel td{background:#0F2730}
+.bar{height:6px;background:var(--line2);border-radius:3px;overflow:hidden;display:flex}
+.bar>span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--dim)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.cols{display:flex;align-items:flex-end;gap:10px;height:200px;border-bottom:1px solid var(--line);padding:0 4px}
+.cols .c{flex:1 1 0;display:flex;flex-direction:column-reverse;gap:2px;height:100%;min-width:6px}
+.cols .c span{display:block;border-radius:2px}
+.xlabels{display:flex;gap:10px;padding:0 4px}.xlabels span{flex:1 1 0;text-align:center;font:11px var(--mono);color:var(--faint);overflow:hidden;white-space:nowrap}
+.funnel{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(110px,1fr);gap:10px;overflow-x:auto;padding-bottom:4px}
+.funnel .st{display:flex;flex-direction:column;gap:6px}
+.funnel .tube{height:140px;display:flex;flex-direction:column;justify-content:flex-end;background:var(--inset);border-radius:6px;overflow:hidden}
+.funnel .tube span{display:block;background:#1E6F80;border-top:2px solid var(--accent)}
+.funnel .tube span.done{background:#2BA3BA}
+.tl{min-width:900px;display:flex;flex-direction:column;gap:5px}
+.tl .lane{display:grid;grid-template-columns:190px 1fr;align-items:center}
+.tl .name{font:12px var(--mono);color:var(--dim);padding-right:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .track{position:relative;height:28px;background:var(--inset);border-radius:4px}
+.tl .axis{position:relative;height:20px;border-bottom:1px solid var(--line)}
+.tl .axis span{position:absolute;bottom:3px;transform:translateX(-50%);font:11px var(--mono);color:var(--faint)}
+.tl .span{position:absolute;top:6px;bottom:6px;border-radius:3px}
+.tl .span.k0{top:3px;bottom:3px;background:#15333C;border:1px solid var(--fill)}
+.tl .span.k1{background:var(--fill)}
+.tl .span.k2{background:#6E9DAA}
+.tl .span.k3{background:#9A8BD6}
+.tl .span.open{border-style:dashed}
+.tl .span.band{background:var(--gray)}
+.tl .span.away{background:#6B4A1C}
+.tl .mark{position:absolute;top:4px;bottom:4px;width:2px;background:var(--text)}
+.tl .mark.pos{background:#D3E4EC}.tl .mark.neg{width:3px;background:var(--warn)}.tl .mark.neu{background:#7F94A1}
+.log{display:flex;flex-direction:column;font:12px var(--mono)}
+.log .r{display:grid;grid-template-columns:56px 76px 76px minmax(0,1fr);gap:10px;padding:6px 0;border-bottom:1px solid #111B23}
+.log .r.head{color:var(--faint);font-size:11px;border-bottom-color:var(--line)}
+.log .r span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.k-sys{color:var(--faint)}.k-role{color:var(--accent)}.k-neg{color:var(--warnText)}.k-none{color:var(--text)}
+input.search{min-height:38px;background:var(--inset);border:1px solid var(--line);border-radius:8px;padding:0 12px;width:100%;max-width:320px}
+label.chk{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--dim);min-height:28px}
+.empty{padding:28px;text-align:center;color:var(--faint)}
+.warn{color:var(--warnText)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border-radius:8px;border:1px solid #2A4452;background:#0F1B23;cursor:pointer}
+.btn:hover{background:#13232D}
+.dots{display:inline-flex;gap:2px}.dots i{display:inline-block;width:8px;height:8px;border-radius:2px}
+@media (max-width:720px){.wrap{padding:16px}.tl .lane{grid-template-columns:120px 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="empty">Загрузка отчёта…</div></div>
+<script>
+"use strict";
+var D = /*__REPORT_DATA__*/null;
+
+(function () {
+  var app = document.getElementById("app");
+  if (!D) { app.textContent = "Нет данных отчёта."; return; }
+
+  // ------------------------------------------------------------ утилиты
+  function el(tag, attrs) {
+    var e = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      var v = attrs[k];
+      if (v == null || v === false) continue;
+      if (k === "class") e.className = v;
+      else if (k === "text") e.textContent = v;
+      else if (k === "style") e.setAttribute("style", v);
+      else if (k.slice(0, 2) === "on") e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? "" : v);
+    }
+    for (var i = 2; i < arguments.length; i++) add(e, arguments[i]);
+    return e;
+  }
+  function add(e, c) {
+    if (c == null || c === false) return;
+    if (Array.isArray(c)) { c.forEach(function (x) { add(e, x); }); return; }
+    e.appendChild(typeof c === "object" ? c : document.createTextNode(String(c)));
+  }
+  function num(v, d) {
+    if (v == null || isNaN(v)) return "—";
+    return Number(v).toLocaleString("ru-RU", { maximumFractionDigits: d == null ? 1 : d });
+  }
+  function pct(a, b) { return b > 0 ? Math.round(a / b * 100) : 0; }
+  function dur(sec) {
+    if (sec == null || isNaN(sec)) return "—";
+    sec = Math.max(0, Math.round(sec));
+    var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    var mm = (m < 10 && h ? "0" : "") + m, ss = (s < 10 ? "0" : "") + s;
+    return h ? h + ":" + (m < 10 ? "0" : "") + m + ":" + ss : mm + ":" + ss;
+  }
+  function median(a) { return quant(a, 0.5); }
+  function quant(a, p) {
+    a = a.filter(function (x) { return x != null && !isNaN(x); }).sort(function (x, y) { return x - y; });
+    if (!a.length) return NaN;
+    var pos = (a.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return lo === hi ? a[lo] : a[lo] + (a[hi] - a[lo]) * (pos - lo);
+  }
+  function date(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+  function day(iso) { return iso ? iso.slice(0, 10) : "—"; }
+  function short(id, n) { return id && id.length > n ? id.slice(0, n) + "…" : (id || "—"); }
+
+  // ------------------------------------------------------------ данные
+  var catalog = {}; (D.catalog || []).forEach(function (c) { catalog[c.key] = c; });
+  var runs = D.runs || [], sessions = D.sessions || [], profiles = D.profiles || [], tags = D.tags || [];
+  var eventsByRun = {}, eventsBySession = {};
+  (D.events || []).forEach(function (e) {
+    var ev = { session: e[0], run: e[1], s: e[2], t: e[3], g: e[4], key: D.keys[e[5]], f: e[6] || {} };
+    (eventsBySession[ev.session] = eventsBySession[ev.session] || []).push(ev);
+    if (ev.run >= 0) (eventsByRun[ev.run] = eventsByRun[ev.run] || []).push(ev);
+  });
+  var intervalsByRun = {};
+  (D.intervals || []).forEach(function (i) {
+    if (i[1] < 0) return;
+    (intervalsByRun[i[1]] = intervalsByRun[i[1]] || []).push({ name: i[2], subject: i[3], start: i[4], end: i[5], closed: i[6] });
+  });
+
+  // итоги прогонов: цвета по частоте; системные «unfinished» и прерывания — серые
+  var resultCount = {};
+  runs.forEach(function (r) { resultCount[r.result] = (resultCount[r.result] || 0) + 1; });
+  var grayResults = { unfinished: 1, aborted: 1, destroyed: 1, restarted: 1, interrupted: 1, load_failed: 1, "—": 1 };
+  var palette = ["#2BA3BA", "#E8A33D", "#9A8BD6", "#6E9DAA", "#C9785A", "#7FB069"];
+  var results = Object.keys(resultCount).sort(function (a, b) {
+    var ga = grayResults[a] ? 1 : 0, gb = grayResults[b] ? 1 : 0;
+    return ga - gb || resultCount[b] - resultCount[a];
+  });
+  var resultColor = {}; var pi = 0;
+  results.forEach(function (r) { resultColor[r] = grayResults[r] ? (r === "unfinished" ? "#2A3843" : "#3A4B57") : palette[pi++ % palette.length]; });
+  var resultName = { unfinished: "не завершён", aborted: "прерван", destroyed: "уничтожен", restarted: "перезапуск", interrupted: "прерван (новый прогон)", load_failed: "ошибка загрузки" };
+  function rname(r) { return resultName[r] || r; }
+  // цвет текста итога: серые итоги — читаемым приглушённым, а не цветом полосы
+  function rtext(r) { return grayResults[r] ? "#8FA5B2" : resultColor[r]; }
+  function resultBar(counts, total, width) {
+    var b = el("div", { class: "bar", style: "width:" + (width || 120) + "px" });
+    results.forEach(function (r) { if (counts[r]) b.appendChild(el("span", { style: "width:" + (counts[r] / total * 100) + "%;background:" + resultColor[r], title: rname(r) + ": " + counts[r] })); });
+    return b;
+  }
+  function legend(list) {
+    return el("div", { class: "legend" }, list.map(function (r) { return el("span", null, el("i", { style: "background:" + resultColor[r] }), rname(r)); }));
+  }
+  function keyClass(key) {
+    if (key.indexOf("app.") === 0) return "k-sys";
+    var c = catalog[key];
+    if (!c || c.role === "none") return "k-none";
+    return c.tone === "negative" ? "k-neg" : "k-role";
+  }
+
+  // ------------------------------------------------------------ каркас
+  var pages = [["overview", "Обзор"], ["tags", "Теги"], ["runs", "Прогоны"], ["players", "Игроки"], ["events", "События"], ["data", "Данные"]];
+  function frame(active, body) {
+    app.textContent = "";
+    var title = D.meta.title || "Аналитика";
+    add(app, el("header", { class: "top" },
+      el("div", { style: "display:flex;align-items:center;gap:12px;flex-wrap:wrap" },
+        el("span", { class: "brand", text: title.toUpperCase() }),
+        el("span", { class: "chip mono", text: D.meta.filter || "все данные" })),
+      el("nav", { class: "tabs", "aria-label": "Разделы" }, pages.map(function (p) {
+        return el("a", { href: "#" + p[0], class: active === p[0] ? "on" : null, text: p[1] });
+      }))));
+    add(app, body);
+    window.scrollTo(0, 0);
+  }
+  function card(title, extra) {
+    var c = el("section", { class: "card", style: "display:flex;flex-direction:column;gap:14px" });
+    if (title) add(c, el("div", { style: "display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap" }, el("h2", { text: title }), extra));
+    for (var i = 2; i < arguments.length; i++) add(c, arguments[i]);
+    return c;
+  }
+  function kpis(list) {
+    return el("section", { class: "grid kpis" }, list.map(function (k) {
+      return el("div", { class: "card kpi" }, el("p", { class: "cap", text: k[0] }), el("div", { class: "v", text: k[1] }), el("div", { class: "h", text: k[2] || "" }));
+    }));
+  }
+
+  // таблица с сортировкой по клику на заголовок
+  function table(columns, rows, opts) {
+    opts = opts || {};
+    var state = { col: opts.sort == null ? -1 : opts.sort, dir: opts.dir || -1 };
+    var box = el("div", { class: "tablebox" });
+    function draw() {
+      var sorted = rows.slice();
+      if (state.col >= 0) sorted.sort(function (a, b) {
+        var x = a.cells[state.col], y = b.cells[state.col];
+        var xs = x && x.sort != null ? x.sort : x, ys = y && y.sort != null ? y.sort : y;
+        if (typeof xs === "number" || typeof ys === "number") return ((xs == null || isNaN(xs) ? -Infinity : xs) - (ys == null || isNaN(ys) ? -Infinity : ys)) * state.dir;
+        return String(xs == null ? "" : xs).localeCompare(String(ys == null ? "" : ys), "ru") * state.dir;
+      });
+      var t = el("table", null,
+        el("thead", null, el("tr", null, columns.map(function (c, i) {
+          return el("th", { scope: "col", class: c.num ? "num" : null, onclick: function () { state.dir = state.col === i ? -state.dir : (c.num ? -1 : 1); state.col = i; draw(); },
+            text: c.title + (state.col === i ? (state.dir > 0 ? " ↑" : " ↓") : "") });
+        }))),
+        el("tbody", null, sorted.map(function (r) {
+          return el("tr", { class: (r.onclick ? "click " : "") + (r.selected ? "sel" : ""), onclick: r.onclick }, r.cells.map(function (v, i) {
+            var shown = v && v.node ? v.node : (v && v.text != null ? v.text : (typeof v === "number" ? num(v, columns[i].digits) : v));
+            return el("td", { class: columns[i].num ? "num" : null }, shown == null ? "—" : shown);
+          }));
+        })));
+      box.textContent = "";
+      box.appendChild(t);
+    }
+    draw();
+    return box;
+  }
+
+  // ------------------------------------------------------------ Обзор
+  function overview() {
+    var finished = runs.filter(function (r) { return r.finished; });
+    var main = results.filter(function (r) { return !grayResults[r]; });
+    var first = main[0];
+    var awayRun = 0, timeRun = 0;
+    runs.forEach(function (r) { awayRun += r.away || 0; timeRun += r.duration || 0; });
+
+    var top = [
+      ["Игроков", num(profiles.length, 0), "профилей"],
+      ["Сессий", num(sessions.length, 0), profiles.length ? num(sessions.length / profiles.length) + " на игрока" : ""],
+      ["Прогонов", num(runs.length, 0), profiles.length ? num(runs.length / profiles.length) + " на игрока" : ""],
+      [first ? rname(first) : "Итог", first ? pct(resultCount[first], runs.length) + "%" : "—", main.slice(1, 3).map(function (r) { return rname(r) + " " + pct(resultCount[r], runs.length) + "%"; }).join(", ")],
+      ["Медиана прогона", dur(median(finished.map(function (r) { return r.duration; }))), "реальное время"],
+      ["Игровое время", dur(median(runs.map(function (r) { return r.game; }))), "медиана"],
+      ["Вне фокуса", timeRun ? pct(awayRun, timeRun) + "%" : "—", "времени прогонов"]
+    ];
+
+    // прогоны по дням
+    var byDay = {};
+    runs.forEach(function (r) { var d = day(r.start); (byDay[d] = byDay[d] || {})[r.result] = (byDay[d][r.result] || 0) + 1; });
+    var days = Object.keys(byDay).sort().slice(-31);
+    var max = 1;
+    days.forEach(function (d) { var s = 0; for (var k in byDay[d]) s += byDay[d][k]; max = Math.max(max, s); });
+    var cols = el("div", { class: "cols", role: "img", "aria-label": "Прогоны по дням" }, days.map(function (d) {
+      return el("div", { class: "c", title: d }, results.map(function (r) {
+        var n = byDay[d][r] || 0;
+        return n ? el("span", { style: "height:" + (n / max * 190) + "px;background:" + resultColor[r], title: d + " · " + rname(r) + ": " + n }) : null;
+      }));
+    }));
+    var labels = el("div", { class: "xlabels" }, days.map(function (d) { return el("span", { text: d.slice(5).split("-").reverse().join(".") }); }));
+
+    return [
+      kpis(top),
+      el("div", { class: "row" },
+        (function () { var c = card("Прогоны по дням", legend(results), days.length ? [cols, labels] : el("div", { class: "empty", text: "Нет прогонов" })); c.classList.add("grow"); return c; })()),
+      card("Теги прогонов", el("span", { class: "muted", text: "тег — то, что передано в BeginRun (сценарий, уровень)" }), tagsTable())
+    ];
+  }
+
+  function tagsTable() {
+    var rows = tags.map(function (t) {
+      var list = t.runs.map(function (i) { return runs[i]; });
+      var neg = 0, away = 0, time = 0;
+      list.forEach(function (r) { neg += r.negative; away += r.away || 0; time += r.duration || 0; });
+      var main = results.filter(function (r) { return !grayResults[r]; })[0];
+      return {
+        onclick: function () { location.hash = "#tag/" + encodeURIComponent(t.tag); },
+        cells: [
+          { text: t.tag, node: el("a", { class: "mono", href: "#tag/" + encodeURIComponent(t.tag), text: t.tag }), sort: t.tag },
+          list.length,
+          { node: el("div", { style: "display:flex;align-items:center;gap:8px" }, resultBar(t.results, list.length), main ? pct(t.results[main] || 0, list.length) + "%" : ""), sort: main ? (t.results[main] || 0) / list.length : 0 },
+          { text: dur(median(list.map(function (r) { return r.duration; }))), sort: median(list.map(function (r) { return r.duration; })) },
+          { text: dur(median(list.map(function (r) { return r.game; }))), sort: median(list.map(function (r) { return r.game; })) },
+          list.length ? neg / list.length : NaN,
+          { text: time ? pct(away, time) + "%" : "—", sort: time ? away / time : 0 }
+        ]
+      };
+    });
+    if (!rows.length) return el("div", { class: "empty", text: "Нет прогонов" });
+    return table([{ title: "Тег" }, { title: "Прогонов", num: true, digits: 0 }, { title: "Итоги" }, { title: "Медиана", num: true }, { title: "Игровое", num: true }, { title: "Неудач / прогон", num: true }, { title: "Вне фокуса", num: true }], rows, { sort: 1 });
+  }
+
+  // ------------------------------------------------------------ Тег
+  function tagsPage() { return [card("Теги прогонов", null, tagsTable())]; }
+
+  function tagPage(name) {
+    var t = tags.filter(function (x) { return x.tag === name; })[0];
+    if (!t) return el("div", { class: "empty", text: "Нет тега " + name });
+    var list = t.runs.map(function (i) { return runs[i]; });
+    var finished = list.filter(function (r) { return r.finished; });
+    var neg = 0; list.forEach(function (r) { neg += r.negative; });
+    var playersSet = {}; list.forEach(function (r) { playersSet[r.profile] = 1; });
+    var main = results.filter(function (r) { return !grayResults[r] && t.results[r]; });
+
+    var head = el("section", { style: "display:flex;flex-direction:column;gap:6px" },
+      el("p", { class: "cap", text: "Тег" }), el("h1", { class: "mono", text: t.tag }),
+      el("span", { class: "muted", text: list.length + " прогонов · " + Object.keys(playersSet).length + " игроков" }));
+
+    var top = kpis([
+      [main[0] ? rname(main[0]) : "Итог", main[0] ? pct(t.results[main[0]], list.length) + "%" : "—", main[0] ? t.results[main[0]] + " из " + list.length : ""],
+      ["Медиана прогона", dur(median(finished.map(function (r) { return r.duration; }))), "p90 — " + dur(quant(finished.map(function (r) { return r.duration; }), 0.9))],
+      ["Игровое время", dur(median(list.map(function (r) { return r.game; }))), "медиана"],
+      ["Неудач", list.length ? num(neg / list.length) : "—", "меток «неудача» на прогон"],
+      ["Не завершено", pct(t.results.unfinished || 0, list.length) + "%", "без app.run.end"]
+    ]);
+
+    var funnels = t.funnels.map(function (f) {
+      var max = Math.max(1, f.runs);
+      return card("Воронка · " + f.interval, el("span", { class: "muted", text: "по " + f.field + ": доля прогонов, где начат и закрыт" }),
+        el("div", { class: "funnel" }, f.steps.map(function (s) {
+          return el("div", { class: "st" },
+            el("div", { class: "tube", title: s.subject + ": начат " + s.reached + ", закрыт " + s.closed },
+              el("span", { style: "height:" + ((s.reached - s.closed) / max * 140) + "px" }),
+              el("span", { class: "done", style: "height:" + (s.closed / max * 140) + "px" })),
+            el("div", { class: "mono", style: "font-size:12px;overflow:hidden;text-overflow:ellipsis", text: s.subject }),
+            el("div", { class: "dim", style: "font-size:12px;display:flex;justify-content:space-between" },
+              el("span", { class: "mono", text: pct(s.closed, f.runs) + "%" }), el("span", { text: dur(s.median) })));
+        })));
+    });
+
+    var tables = t.tables.map(function (tb) {
+      var cols = tb.columns.map(function (c, i) { return { title: c, num: i > 0 }; });
+      var rows = tb.rows.map(function (r) { return { cells: r.map(function (v, i) { return i === 0 ? { text: v, node: el("span", { class: "mono", text: v }) } : v; }) }; });
+      return card("По " + tb.title, el("span", { class: "muted", text: "интервалы — секунды оси прогона (игровое время, если есть)" }), table(cols, rows, { sort: 1 }));
+    });
+
+    var runRows = list.map(function (r) {
+      var i = runs.indexOf(r);
+      return {
+        onclick: function () { location.hash = "#run/" + i; },
+        cells: [{ text: date(r.start), sort: r.start }, { text: r.profile, node: el("span", { class: "mono", text: short(r.profile, 16) }) },
+          { text: rname(r.result), node: el("span", { style: "color:" + rtext(r.result), text: rname(r.result) }) },
+          { text: dur(r.duration), sort: r.duration }, { text: dur(r.game), sort: r.game }, r.negative, r.events]
+      };
+    });
+
+    return [head, top].concat(funnels, tables, [card("Прогоны", null, table([{ title: "Начало" }, { title: "Профиль" }, { title: "Итог" }, { title: "Длительность", num: true }, { title: "Игровое", num: true }, { title: "Неудач", num: true, digits: 0 }, { title: "Событий", num: true, digits: 0 }], runRows, { sort: 0 }))]);
+  }
+
+  // ------------------------------------------------------------ Прогоны
+  function runsPage() {
+    var q = el("input", { class: "search", type: "search", placeholder: "тег, профиль или итог", "aria-label": "Поиск прогонов" });
+    var host = el("div");
+    function draw() {
+      var s = q.value.trim().toLowerCase();
+      var rows = [];
+      runs.forEach(function (r, i) {
+        if (s && (r.tag + " " + r.profile + " " + r.result).toLowerCase().indexOf(s) < 0) return;
+        rows.push({ onclick: function () { location.hash = "#run/" + i; }, cells: [
+          { text: date(r.start), sort: r.start }, { text: r.tag, node: el("span", { class: "mono", text: r.tag }) },
+          { text: r.profile, node: el("span", { class: "mono", text: short(r.profile, 16) }) },
+          { text: rname(r.result), node: el("span", { style: "color:" + rtext(r.result), text: rname(r.result) }) },
+          { text: dur(r.duration), sort: r.duration }, { text: dur(r.game), sort: r.game }, r.negative, r.platform || "—", r.build || "—"] });
+      });
+      host.textContent = "";
+      host.appendChild(rows.length ? table([{ title: "Начало" }, { title: "Тег" }, { title: "Профиль" }, { title: "Итог" }, { title: "Длительность", num: true }, { title: "Игровое", num: true }, { title: "Неудач", num: true, digits: 0 }, { title: "Платформа" }, { title: "Билд" }], rows, { sort: 0 }) : el("div", { class: "empty", text: "Ничего не найдено" }));
+    }
+    q.addEventListener("input", draw);
+    draw();
+    return [card("Прогоны · " + runs.length, q, host)];
+  }
+
+  // ------------------------------------------------------------ Прогон: таймлайн
+  function runPage(index) {
+    var r = runs[index];
+    if (!r) return el("div", { class: "empty", text: "Нет прогона" });
+    var evs = (eventsByRun[index] || []).slice().sort(function (a, b) { return a.s - b.s; });
+    var ivs = intervalsByRun[index] || [];
+    function axis(e) { return e.g != null ? e.g : e.t; }
+    var end = 1;
+    evs.forEach(function (e) { end = Math.max(end, axis(e)); });
+    ivs.forEach(function (i) { end = Math.max(end, i.end); });
+    function x(v) { return Math.max(0, Math.min(100, v / end * 100)); }
+
+    // дорожки: системные (вне фокуса, состояния-логические), затем по субъекту, затем «прочее»
+    var lanes = [], laneBy = {};
+    function lane(id, name) { if (!laneBy[id]) { laneBy[id] = { name: name, spans: [], marks: [] }; lanes.push(laneBy[id]); } return laneBy[id]; }
+
+    var lostAt = null;
+    evs.forEach(function (e) {
+      if (e.key === "app.focus.lost") lostAt = axis(e);
+      else if (e.key === "app.focus.gained" && lostAt != null) { lane("app", "приложение").spans.push({ a: lostAt, b: axis(e), cls: "away", title: "вне фокуса " + dur(e.f.away) }); lostAt = null; }
+    });
+    if (lostAt != null) lane("app", "приложение").spans.push({ a: lostAt, b: end, cls: "away", title: "вне фокуса до конца" });
+
+    // логические состояния — полосы, пока true
+    var stateOn = {};
+    evs.forEach(function (e) {
+      var c = catalog[e.key];
+      if (!c || c.role !== "state" || !c.value) return;
+      var v = e.f[c.value];
+      if (typeof v !== "boolean") { lane("st:" + e.key, e.key.split(".").pop()).marks.push({ at: axis(e), cls: "neu", title: e.key + " = " + v }); return; }
+      if (v && stateOn[e.key] == null) stateOn[e.key] = axis(e);
+      else if (!v && stateOn[e.key] != null) { lane("st:" + e.key, e.key.split(".").pop()).spans.push({ a: stateOn[e.key], b: axis(e), cls: "band", title: e.key }); stateOn[e.key] = null; }
+    });
+    for (var k in stateOn) if (stateOn[k] != null) lane("st:" + k, k.split(".").pop()).spans.push({ a: stateOn[k], b: end, cls: "band", title: k });
+
+    var intervalNames = [];
+    ivs.forEach(function (i) { if (intervalNames.indexOf(i.name) < 0) intervalNames.push(i.name); });
+    ivs.slice().sort(function (a, b) { return a.start - b.start; }).forEach(function (i) {
+      var l = lane("s:" + (i.subject || i.name), i.subject || i.name);
+      l.spans.push({ a: i.start, b: i.end, cls: "k" + Math.min(3, intervalNames.indexOf(i.name)) + (i.closed ? "" : " open"), title: i.name + " · " + dur(i.end - i.start) + (i.closed ? "" : " (не закрыт)") });
+    });
+
+    evs.forEach(function (e) {
+      var c = catalog[e.key];
+      if (!c || c.role !== "mark") return;
+      var subject = c.subject ? e.f[c.subject] : null;
+      var l = subject != null ? lane("s:" + subject, subject) : lane("marks", "метки");
+      l.marks.push({ at: axis(e), cls: c.tone === "negative" ? "neg" : c.tone === "positive" ? "pos" : "neu", title: e.key + " · " + dur(axis(e)) });
+    });
+
+    var step = [30, 60, 120, 300, 600, 900, 1800, 3600].filter(function (s) { return end / s <= 10; })[0] || 3600;
+    var ticks = [];
+    for (var tt = 0; tt <= end; tt += step) ticks.push(tt);
+
+    var tl = el("div", { class: "tl" },
+      el("div", { class: "lane" }, el("span"), el("div", { class: "axis" }, ticks.map(function (v) { return el("span", { style: "left:" + x(v) + "%", text: dur(v) }); }))),
+      lanes.map(function (l) {
+        return el("div", { class: "lane" }, el("span", { class: "name", title: l.name, text: l.name }),
+          el("div", { class: "track" },
+            l.spans.map(function (s) { return el("div", { class: "span " + s.cls, style: "left:" + x(s.a) + "%;width:" + Math.max(0.2, x(s.b) - x(s.a)) + "%", title: s.title }); }),
+            l.marks.map(function (m) { return el("div", { class: "mark " + m.cls, style: "left:" + x(m.at) + "%", title: m.title }); })));
+      }));
+
+    var legendItems = [];
+    intervalNames.forEach(function (n, i) { legendItems.push(el("span", null, el("i", { class: "", style: i === 0 ? "background:#15333C;border:1px solid #2BA3BA" : "background:" + ["#2BA3BA", "#2BA3BA", "#6E9DAA", "#9A8BD6"][Math.min(3, i)] }), n)); });
+    legendItems.push(el("span", null, el("i", { style: "background:#D3E4EC;width:2px" }), "удача"));
+    legendItems.push(el("span", null, el("i", { style: "background:#E8A33D;width:3px" }), "неудача"));
+    legendItems.push(el("span", null, el("i", { style: "background:#6B4A1C" }), "вне фокуса"));
+
+    // журнал
+    var showSys = el("input", { type: "checkbox" }), showRole = el("input", { type: "checkbox", checked: true }), showOther = el("input", { type: "checkbox", checked: true });
+    var log = el("div", { class: "log" });
+    function drawLog() {
+      log.textContent = "";
+      log.appendChild(el("div", { class: "r head" }, el("span", { text: "s" }), el("span", { text: "t" }), el("span", { text: "g" }), el("span", { text: "событие · поля" })));
+      var n = 0;
+      evs.forEach(function (e) {
+        var cls = keyClass(e.key);
+        if (cls === "k-sys" && !showSys.checked) return;
+        if ((cls === "k-role" || cls === "k-neg") && !showRole.checked) return;
+        if (cls === "k-none" && !showOther.checked) return;
+        if (n++ > 2000) return;
+        var fields = Object.keys(e.f).map(function (k) { return k + "=" + e.f[k]; }).join(" ");
+        log.appendChild(el("div", { class: "r" }, el("span", { class: "muted", text: e.s }), el("span", { class: "dim", text: num(e.t, 3) }), el("span", { class: "dim", text: e.g == null ? "—" : num(e.g, 3) }),
+          el("span", { title: e.key + " " + fields }, el("span", { class: cls, text: e.key }), " ", el("span", { class: "muted", text: fields }))));
+      });
+      if (n > 2000) log.appendChild(el("div", { class: "empty", text: "… показаны первые 2000" }));
+    }
+    [showSys, showRole, showOther].forEach(function (c) { c.addEventListener("change", drawLog); });
+    drawLog();
+
+    var prev = index > 0 ? el("a", { class: "btn", href: "#run/" + (index - 1), text: "← Предыдущий" }) : null;
+    var next = index < runs.length - 1 ? el("a", { class: "btn", href: "#run/" + (index + 1), text: "Следующий →" }) : null;
+
+    return [
+      el("section", { style: "display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px" },
+        el("div", { style: "display:flex;flex-direction:column;gap:8px" },
+          el("p", { class: "cap", text: "Прогон " + short(r.id, 10) }),
+          el("h1", { class: "mono" }, el("a", { href: "#tag/" + encodeURIComponent(r.tag), text: r.tag }), " · ", el("span", { style: "color:" + rtext(r.result), text: rname(r.result) })),
+          el("div", { class: "chips" }, el("a", { class: "chip mono", href: "#player/" + encodeURIComponent(r.profile), text: r.profile }), el("span", { class: "chip", text: date(r.start) }),
+            el("span", { class: "chip", text: (r.build || "—") + " · " + (r.platform || "—") }), el("span", { class: "chip", text: "игровое " + dur(r.game) + " · реальное " + dur(r.duration) }))),
+        el("div", { class: "btnrow" }, prev, next)),
+      card("Таймлайн", legend([]), el("div", { class: "legend" }, legendItems), lanes.length ? el("div", { class: "tablebox" }, tl) : el("div", { class: "empty", text: "Нет событий с ролями — задайте роли в каталоге (Nexus → Аналитика)" }),
+        el("span", { class: "muted", text: "Ось — игровое время (g), если есть, иначе реальное от начала прогона. Наведите на отрезок — время и длительность." })),
+      card("События · " + evs.length, el("div", { class: "chips" }, el("label", { class: "chk" }, showRole, "с ролью"), el("label", { class: "chk" }, showOther, "без роли"), el("label", { class: "chk" }, showSys, "системные app.*")), log)
+    ];
+  }
+
+  // ------------------------------------------------------------ Игроки
+  function playersPage(selected) {
+    var host = el("div");
+    var q = el("input", { class: "search", type: "search", placeholder: "player_…", "aria-label": "Поиск профиля" });
+    function draw() {
+      var s = q.value.trim().toLowerCase();
+      var rows = profiles.filter(function (p) { return !s || p.id.toLowerCase().indexOf(s) >= 0; }).map(function (p) {
+        var last = runs.filter(function (r) { return r.profile === p.id; }).slice(-10);
+        return { selected: p.id === selected, onclick: function () { location.hash = "#player/" + encodeURIComponent(p.id); }, cells: [
+          { text: p.id, node: el("span", { class: "mono", text: p.id }) }, p.sessions, p.runs,
+          { node: el("span", { class: "dots" }, last.map(function (r) { return el("i", { style: "background:" + resultColor[r.result], title: r.tag + " · " + rname(r.result) }); })), sort: p.runs },
+          { text: dur(p.time), sort: p.time }, p.runs ? p.negative / p.runs : NaN, { text: date(p.last), sort: p.last }] };
+      });
+      host.textContent = "";
+      host.appendChild(rows.length ? table([{ title: "Профиль" }, { title: "Сессий", num: true, digits: 0 }, { title: "Прогонов", num: true, digits: 0 }, { title: "Последние итоги" }, { title: "Время", num: true }, { title: "Неудач / прогон", num: true }, { title: "Последний раз" }], rows, { sort: 6 }) : el("div", { class: "empty", text: "Ничего не найдено" }));
+    }
+    q.addEventListener("input", draw);
+    draw();
+
+    var side = null;
+    var p = profiles.filter(function (x) { return x.id === selected; })[0];
+    if (p) {
+      var mine = runs.map(function (r, i) { return { r: r, i: i }; }).filter(function (x) { return x.r.profile === p.id; });
+      var byTag = {};
+      mine.forEach(function (x) { (byTag[x.r.tag] = byTag[x.r.tag] || []).push(x.r); });
+      side = el("aside", { class: "card side", style: "display:flex;flex-direction:column;gap:14px" },
+        el("p", { class: "cap", text: "Профиль" }), el("h2", { class: "mono", text: p.id }),
+        el("span", { class: "muted", text: "впервые " + date(p.first) + " · " + (p.platform || "—") + " · " + (p.build || "—") }),
+        el("div", { class: "grid", style: "grid-template-columns:repeat(3,minmax(0,1fr))" },
+          [["Прогонов", p.runs], ["Сессий", p.sessions], ["Время", dur(p.time)]].map(function (s) {
+            return el("div", { style: "background:var(--inset);border-radius:8px;padding:10px" }, el("div", { class: "muted", style: "font-size:12px", text: s[0] }), el("div", { class: "mono", style: "font-size:18px;font-weight:600", text: s[1] }));
+          })),
+        el("h3", { text: "По тегам" }),
+        Object.keys(byTag).map(function (t) {
+          var list = byTag[t], counts = {};
+          list.forEach(function (r) { counts[r.result] = (counts[r.result] || 0) + 1; });
+          return el("div", { style: "display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px" }, el("a", { class: "mono", href: "#tag/" + encodeURIComponent(t), text: t }), el("span", { style: "display:flex;gap:8px;align-items:center" }, resultBar(counts, list.length, 80), list.length));
+        }),
+        el("h3", { text: "Прогоны" }),
+        mine.slice(-12).reverse().map(function (x) {
+          return el("a", { href: "#run/" + x.i, style: "display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:10px;align-items:center;min-height:40px;padding:0 10px;border-radius:8px;background:var(--inset);color:var(--text);font-size:13px;text-decoration:none" },
+            el("span", { class: "dim", text: date(x.r.start) }), el("span", { class: "mono", style: "overflow:hidden;text-overflow:ellipsis", text: x.r.tag }), el("span", { style: "color:" + rtext(x.r.result), text: rname(x.r.result) }));
+        }));
+    }
+
+    return [el("div", { class: "row", style: "align-items:flex-start" }, card("Игроки · " + profiles.length, q, host), side)];
+  }
+
+  // ------------------------------------------------------------ События
+  function eventsPage() {
+    var counts = {}, runsWith = {};
+    (D.events || []).forEach(function (e) {
+      var k = D.keys[e[5]];
+      counts[k] = (counts[k] || 0) + 1;
+      if (e[1] >= 0) (runsWith[k] = runsWith[k] || {})[e[1]] = 1;
+    });
+    var keys = Object.keys(counts);
+    (D.catalog || []).forEach(function (c) { if (!counts[c.key]) keys.push(c.key); });
+    var roleName = { none: "—", mark: "метка", begin: "начало", end: "конец", state: "состояние" };
+    var rows = keys.map(function (k) {
+      var c = catalog[k];
+      var role = c ? roleName[c.role] + (c.interval ? " · " + c.interval : "") + (c.subject ? " · по " + c.subject : "") : (k.indexOf("app.") === 0 ? "системное" : "нет в каталоге");
+      return { cells: [{ text: k, node: el("span", { class: "mono " + keyClass(k), text: k }) }, c ? c.title || "" : "", role, counts[k] || 0,
+        runs.length ? Object.keys(runsWith[k] || {}).length / runs.length * 100 : NaN,
+        c ? c.fields.map(function (f) { return f.name + ":" + f.type; }).join(", ") : ""] };
+    });
+    return [card("События · " + num(D.meta.events, 0), el("span", { class: "muted", text: "каталог: " + (D.catalog || []).length + " событий" }),
+      table([{ title: "Ключ" }, { title: "Название" }, { title: "Роль в отчёте" }, { title: "Событий", num: true, digits: 0 }, { title: "В % прогонов", num: true, digits: 0 }, { title: "Поля" }], rows, { sort: 3 }))];
+  }
+
+  // ------------------------------------------------------------ Данные
+  function dataPage() {
+    var m = D.meta;
+    var dropped = 0; sessions.forEach(function (s) { dropped += s.dropped || 0; });
+    return [card("Источник", null,
+      el("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(220px,1fr))" },
+        [["Собран", date(m.generated)], ["Файлов", m.files], ["Пакетов", m.packets], ["Дублей отброшено", m.duplicates], ["Битых строк", m.broken], ["Событий", num(m.events, 0)], ["Потеряно в игре (dropped)", dropped], ["Профили", m.anonymized ? "обезличены" : "как есть"]].map(function (x) {
+          return el("div", { style: "background:var(--inset);border-radius:8px;padding:12px" }, el("div", { class: "muted", style: "font-size:12px", text: x[0] }), el("div", { class: "mono", style: "font-size:18px", text: x[1] }));
+        })),
+      el("div", null, el("h3", { text: "Фильтр" }), el("p", { class: "dim", text: m.filter || "все данные" })),
+      el("div", null, el("h3", { text: "Папки и файлы" }), (m.sources || []).map(function (s) { return el("div", { class: "mono dim", style: "font-size:12px", text: s }); })),
+      el("div", null, el("h3", { text: "Схемы каталога" }), el("div", { class: "chips" }, (m.schemas || []).map(function (s) { return el("span", { class: "chip mono", text: s }); })),
+        (m.schemas || []).length > 1 ? el("p", { class: "warn", text: "В данных несколько версий каталога — колонки полей объединены." }) : null),
+      el("div", null, el("h3", { text: "Билды и платформы" }), el("div", { class: "chips" }, (m.builds || []).concat(m.platforms || []).map(function (s) { return el("span", { class: "chip", text: s }); }))),
+      (m.warnings || []).length ? el("div", null, el("h3", { text: "Предупреждения" }), m.warnings.slice(0, 50).map(function (w) { return el("div", { class: "warn", style: "font-size:13px", text: w }); })) : null)];
+  }
+
+  // ------------------------------------------------------------ маршрутизация
+  function route() {
+    var h = decodeURIComponent(location.hash.slice(1) || "overview");
+    var parts = h.split("/"), page = parts[0], arg = parts.slice(1).join("/");
+    try {
+      if (page === "tag") frame("tags", tagPage(arg));
+      else if (page === "tags") frame("tags", tagsPage());
+      else if (page === "run") frame("runs", runPage(parseInt(arg, 10)));
+      else if (page === "runs") frame("runs", runsPage());
+      else if (page === "player") frame("players", playersPage(arg));
+      else if (page === "players") frame("players", playersPage(null));
+      else if (page === "events") frame("events", eventsPage());
+      else if (page === "data") frame("data", dataPage());
+      else frame("overview", overview());
+    } catch (e) {
+      app.textContent = "Ошибка отчёта: " + e.message;
+      if (window.console) console.error(e);
+    }
+  }
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>

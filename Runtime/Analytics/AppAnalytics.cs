@@ -451,6 +451,11 @@ namespace Exerussus.AppCore.Analytics
             PutString(_platform);
             Put(",\"unity\":");
             PutString(_unityVersion);
+            if (_runId != null)
+            {
+                Put(",\"runStart\":");
+                PutNumber(_runStart - _sessionStart);
+            }
             Put(",\"seq0\":");
             PutLong(_seq + 1);
             Put("}\n");

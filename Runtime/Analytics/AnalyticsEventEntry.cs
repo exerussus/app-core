@@ -24,5 +24,8 @@ namespace Exerussus.AppCore.Analytics
         public bool disabled;
 
         public AnalyticsField[] fields;
+
+        [Tooltip("Как событие читает отчёт аналитики (Nexus → Аналитика → Отчёт). На запись и данные не влияет.")]
+        public AnalyticsReportInfo report;
     }
 }

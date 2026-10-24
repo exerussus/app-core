@@ -94,17 +94,84 @@ namespace Exerussus.AppCore.Analytics.Editor
                 if (error != null) issues.Add(new Issue(IssueLevel.Error, e.key, error));
                 if (!seen.Add(e.key ?? string.Empty)) issues.Add(new Issue(IssueLevel.Error, e.key, "ключ повторяется"));
 
-                if (e.fields == null) continue;
-                var names = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var f in e.fields)
+                if (e.fields != null)
                 {
-                    var fieldError = AnalyticsKeys.ValidateField(f.name);
-                    if (fieldError != null) issues.Add(new Issue(IssueLevel.Error, e.key, $"поле «{f.name}»: {fieldError}"));
-                    else if (!names.Add(f.name)) issues.Add(new Issue(IssueLevel.Error, e.key, $"поле «{f.name}» повторяется"));
+                    var names = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var f in e.fields)
+                    {
+                        var fieldError = AnalyticsKeys.ValidateField(f.name);
+                        if (fieldError != null) issues.Add(new Issue(IssueLevel.Error, e.key, $"поле «{f.name}»: {fieldError}"));
+                        else if (!names.Add(f.name)) issues.Add(new Issue(IssueLevel.Error, e.key, $"поле «{f.name}» повторяется"));
+                    }
                 }
+
+                ValidateReport(e, issues);
             }
 
+            ValidateIntervals(entries, issues);
             return issues;
+        }
+
+        // ---------------------------------------------------------------- роли в отчёте (только предупреждения: на данные не влияют)
+
+        private static void ValidateReport(AnalyticsEventEntry e, List<Issue> issues)
+        {
+            var r = e.report;
+            if (r.role == AnalyticsReportRole.None) return;
+
+            if ((r.role == AnalyticsReportRole.Begin || r.role == AnalyticsReportRole.End) && string.IsNullOrWhiteSpace(r.interval))
+                issues.Add(new Issue(IssueLevel.Warning, e.key, "отчёт: у начала/конца интервала нет имени интервала"));
+
+            if (r.role == AnalyticsReportRole.State && string.IsNullOrWhiteSpace(r.value))
+                issues.Add(new Issue(IssueLevel.Warning, e.key, "отчёт: у состояния не выбрано поле значения"));
+
+            CheckField(e, r.subject, "субъект", t => t == AnalyticsFieldType.String, "строковым", issues);
+            CheckField(e, r.measure, "мера", t => t == AnalyticsFieldType.Int || t == AnalyticsFieldType.Float, "числовым", issues);
+            CheckField(e, r.value, "значение", _ => true, null, issues);
+        }
+
+        private static void CheckField(AnalyticsEventEntry e, string name, string what, Func<AnalyticsFieldType, bool> ok, string kind, List<Issue> issues)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            if (e.fields != null)
+                foreach (var f in e.fields)
+                    if (f.name == name)
+                    {
+                        if (!ok(f.type)) issues.Add(new Issue(IssueLevel.Warning, e.key, $"отчёт: {what} «{name}» должен быть {kind} полем"));
+                        return;
+                    }
+
+            issues.Add(new Issue(IssueLevel.Warning, e.key, $"отчёт: {what} «{name}» — нет такого поля"));
+        }
+
+        /// <summary>У каждого интервала есть и начало, и конец; субъект у них одинаковый.</summary>
+        private static void ValidateIntervals(AnalyticsEventEntry[] entries, List<Issue> issues)
+        {
+            var begins = new Dictionary<string, AnalyticsEventEntry>(StringComparer.Ordinal);
+            var ends = new Dictionary<string, AnalyticsEventEntry>(StringComparer.Ordinal);
+            foreach (var e in entries)
+            {
+                var r = e.report;
+                if (string.IsNullOrWhiteSpace(r.interval)) continue;
+                if (r.role == AnalyticsReportRole.Begin) begins[r.interval] = e;
+                else if (r.role == AnalyticsReportRole.End) ends[r.interval] = e;
+            }
+
+            foreach (var pair in begins)
+            {
+                if (!ends.TryGetValue(pair.Key, out var end))
+                {
+                    issues.Add(new Issue(IssueLevel.Info, pair.Value.key, $"отчёт: у интервала «{pair.Key}» нет конца — закроется концом прогона"));
+                    continue;
+                }
+
+                if (!string.Equals(pair.Value.report.subject ?? string.Empty, end.report.subject ?? string.Empty, StringComparison.Ordinal))
+                    issues.Add(new Issue(IssueLevel.Warning, end.key, $"отчёт: субъект конца интервала «{pair.Key}» не совпадает с началом ({pair.Value.key})"));
+            }
+
+            foreach (var pair in ends)
+                if (!begins.ContainsKey(pair.Key))
+                    issues.Add(new Issue(IssueLevel.Warning, pair.Value.key, $"отчёт: у интервала «{pair.Key}» нет начала"));
         }
 
         // ---------------------------------------------------------------- меню
