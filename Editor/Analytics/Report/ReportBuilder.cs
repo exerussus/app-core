@@ -110,9 +110,12 @@ namespace Exerussus.AppCore.Analytics.Reports
                                        Dictionary<string, ReportSession> sessions, Dictionary<string, ReportRun> runs,
                                        HashSet<string> packets, List<KeyValuePair<string, JsonValue>> fields)
         {
+            // в файле может быть несколько пакетов подряд (склеенный JSONL, выгрузка с сервера):
+            // каждая строка-заголовок открывает новый пакет
             ReportSession session = null;
             ReportRun run = null;
-            var headerSeen = false;
+            var skip = false;
+            var headers = 0;
 
             foreach (var raw in lines)
             {
@@ -123,26 +126,30 @@ namespace Exerussus.AppCore.Analytics.Reports
                     continue;
                 }
 
-                if (!headerSeen)
+                if (Get(fields, "type").AsText() == "header")
                 {
-                    if (Get(fields, "type").AsText() != "header")
-                    {
-                        data.Warnings.Add($"{Path.GetFileName(file)}: нет заголовка пакета — файл пропущен");
-                        return;
-                    }
-
-                    headerSeen = true;
-                    var packetId = Get(fields, "packet").AsText() ?? Path.GetFileNameWithoutExtension(file);
+                    headers++;
+                    var packetId = Get(fields, "packet").AsText() ?? Path.GetFileNameWithoutExtension(file) + "#" + headers;
                     if (!packets.Add(packetId))
                     {
                         data.DuplicatePackets++;
-                        return;
+                        skip = true;
+                        continue;
                     }
 
+                    skip = false;
                     data.Packets++;
                     data.RawLines.Add(raw);
                     session = SessionOf(fields, sessions, data);
                     run = RunOf(fields, session, runs);
+                    continue;
+                }
+
+                if (skip) continue;
+                if (session == null)
+                {
+                    data.Warnings.Add($"{Path.GetFileName(file)}: события до заголовка пакета — пропущены");
+                    skip = true;
                     continue;
                 }
 
@@ -779,6 +786,13 @@ namespace Exerussus.AppCore.Analytics.Reports
             return i >= 0 ? key.Substring(i + 1) : key;
         }
 
+        private static string JsonQuoted(string s)
+        {
+            var sb = new StringBuilder();
+            JsonOut.WriteString(sb, s);
+            return sb.ToString();
+        }
+
         private static JsonValue Num(double v) => double.IsNaN(v) ? JsonValue.Null : JsonValue.Of(Math.Round(v, 3));
 
         // ============================================================ обезличивание
@@ -814,11 +828,19 @@ namespace Exerussus.AppCore.Analytics.Reports
                         e.Fields[i] = new KeyValuePair<string, JsonValue>("previous", JsonValue.Of(Hash(e.Fields[i].Value.Text)));
             }
 
+            // в сырых строках — только значения полей profile и previous, как их пишет AppCore ("ключ":"значение")
             for (var i = 0; i < data.RawLines.Count; i++)
             {
                 var line = data.RawLines[i];
                 foreach (var pair in map)
-                    if (line.IndexOf(pair.Key, StringComparison.Ordinal) >= 0) line = line.Replace(pair.Key, pair.Value);
+                {
+                    if (pair.Key.Length < 3) continue;
+                    var quoted = JsonQuoted(pair.Key);
+                    if (line.IndexOf(quoted, StringComparison.Ordinal) < 0) continue;
+                    var hashed = JsonQuoted(pair.Value);
+                    line = line.Replace("\"profile\":" + quoted, "\"profile\":" + hashed)
+                               .Replace("\"previous\":" + quoted, "\"previous\":" + hashed);
+                }
                 data.RawLines[i] = line;
             }
         }

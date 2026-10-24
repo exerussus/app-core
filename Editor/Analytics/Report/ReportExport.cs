@@ -25,6 +25,11 @@ namespace Exerussus.AppCore.Analytics.Reports
         public bool Bom = true;
         /// <summary>Добавить колонки времени UTC в ISO 8601.</summary>
         public bool IsoTimes;
+
+        /// <summary>Десятичная запятая в числах (по умолчанию — вместе с разделителем «;», как ждёт Excel с русской локалью).</summary>
+        public bool? DecimalComma;
+
+        public bool UseDecimalComma => DecimalComma ?? Delimiter == ';';
     }
 
     /// <summary>report.html и экспорт из <see cref="ReportData"/>. Файлы пишутся через временный и переносятся.</summary>
@@ -285,7 +290,9 @@ namespace Exerussus.AppCore.Analytics.Reports
             events.Columns.AddRange(new[] { "profile", "session", "run", "tag", "s", "t", "g", "session_t" });
             if (csv.IsoTimes) events.Columns.Add("utc");
             events.Columns.Add("event");
-            events.Columns.AddRange(data.FieldNames);
+            // поле события с именем служебной колонки (tag у app.run.begin…) — с префиксом, без дублей
+            var fixedColumns = new HashSet<string>(events.Columns, StringComparer.Ordinal);
+            foreach (var name in data.FieldNames) events.Columns.Add(fixedColumns.Contains(name) ? "f_" + name : name);
             foreach (var s in data.Sessions)
             {
                 foreach (var e in s.Events)
@@ -373,7 +380,7 @@ namespace Exerussus.AppCore.Analytics.Reports
                     {
                         var entry = zip.CreateEntry(SafeName(table.Id) + ".csv", CompressionLevel.Optimal);
                         using (var w = new StreamWriter(entry.Open(), new UTF8Encoding(csv.Bom)))
-                            WriteCsv(w, table, csv.Delimiter);
+                            WriteCsv(w, table, csv.Delimiter, csv.UseDecimalComma);
                     }
 
                     var catalog = zip.CreateEntry("catalog.json", CompressionLevel.Optimal);
@@ -397,7 +404,7 @@ namespace Exerussus.AppCore.Analytics.Reports
             }
         }
 
-        public static void WriteCsv(TextWriter w, ReportTable table, char delimiter)
+        public static void WriteCsv(TextWriter w, ReportTable table, char delimiter, bool decimalComma = false)
         {
             for (var i = 0; i < table.Columns.Count; i++)
             {
@@ -412,7 +419,13 @@ namespace Exerussus.AppCore.Analytics.Reports
                 {
                     if (i > 0) w.Write(delimiter);
                     var v = row[i];
-                    w.Write(v.Kind == JsonKind.String ? CsvCell(v.Text, delimiter) : v.AsText() ?? string.Empty);
+                    if (v.Kind == JsonKind.String) w.Write(CsvCell(v.Text, delimiter));
+                    else
+                    {
+                        var text = v.AsText() ?? string.Empty;
+                        if (decimalComma && v.Kind == JsonKind.Number) text = text.Replace('.', ',');
+                        w.Write(text);
+                    }
                 }
                 w.Write("\r\n");
             }

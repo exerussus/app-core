@@ -227,7 +227,8 @@ var D = /*__REPORT_DATA__*/null;
       var sorted = rows.slice();
       if (state.col >= 0) sorted.sort(function (a, b) {
         var x = a.cells[state.col], y = b.cells[state.col];
-        var xs = x && x.sort != null ? x.sort : x, ys = y && y.sort != null ? y.sort : y;
+        function key(v) { return v && typeof v === "object" ? (v.sort != null ? v.sort : v.text) : v; }
+        var xs = key(x), ys = key(y);
         if (typeof xs === "number" || typeof ys === "number") return ((xs == null || isNaN(xs) ? -Infinity : xs) - (ys == null || isNaN(ys) ? -Infinity : ys)) * state.dir;
         return String(xs == null ? "" : xs).localeCompare(String(ys == null ? "" : ys), "ru") * state.dir;
       });
@@ -442,7 +443,8 @@ var D = /*__REPORT_DATA__*/null;
       l.marks.push({ at: axis(e), cls: c.tone === "negative" ? "neg" : c.tone === "positive" ? "pos" : "neu", title: e.key + " · " + dur(axis(e)) });
     });
 
-    var step = [30, 60, 120, 300, 600, 900, 1800, 3600].filter(function (s) { return end / s <= 10; })[0] || 3600;
+    // шаг оси: ~10 делений при любой длине (испорченное g не должно рождать сотни тысяч узлов)
+    var step = [30, 60, 120, 300, 600, 900, 1800, 3600].filter(function (s) { return end / s <= 10; })[0] || Math.ceil(end / 10 / 3600) * 3600;
     var ticks = [];
     for (var tt = 0; tt <= end; tt += step) ticks.push(tt);
 
@@ -589,9 +591,10 @@ var D = /*__REPORT_DATA__*/null;
 
   // ------------------------------------------------------------ маршрутизация
   function route() {
-    var h = decodeURIComponent(location.hash.slice(1) || "overview");
-    var parts = h.split("/"), page = parts[0], arg = parts.slice(1).join("/");
     try {
+      var h;
+      try { h = decodeURIComponent(location.hash.slice(1) || "overview"); } catch (e) { h = "overview"; }
+      var parts = h.split("/"), page = parts[0], arg = parts.slice(1).join("/");
       if (page === "tag") frame("tags", tagPage(arg));
       else if (page === "tags") frame("tags", tagsPage());
       else if (page === "run") frame("runs", runPage(parseInt(arg, 10)));
