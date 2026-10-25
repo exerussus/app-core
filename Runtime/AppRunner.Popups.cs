@@ -292,8 +292,8 @@ namespace Exerussus.AppCore
                     await popup.Controller.OnUnfocus();
                     await popup.Controller.OnHide();
                     await popup.Controller.OnDeactivate();
-                    popup.Unmount();
                 }
+                popup.Unmount();
                 popup.gameObject.SetActive(false);
                 var closedType = popup.PopupUid;
                 await RunOnMainThreadAsync(() => InvokePopupClosed(closedType));
@@ -351,6 +351,9 @@ namespace Exerussus.AppCore
                         await popup.Controller.OnHide();
                         await popup.Controller.OnDeactivate();
                     }
+                    // Вёрстка попапа живёт на панели независимо от GameObject: без Unmount он оставался
+                    // поверх новой страницы и забирал ввод, а стек уже пуст — закрыть нечем.
+                    popup.Unmount();
                     popup.gameObject.SetActive(false);
                     var closedType = popup.PopupUid;
                     await RunOnMainThreadAsync(() => InvokePopupClosed(closedType));

@@ -450,7 +450,7 @@ namespace Exerussus.AppCore
             {
                 try
                 {
-                    criticalScreen.Show(reason, allowRebootOnFail, RestartBoot, null);
+                    criticalScreen.Show(reason, allowRebootOnFail, RestartBoot, CriticalQuit);
                     return;
                 }
                 catch (Exception e)
@@ -470,6 +470,9 @@ namespace Exerussus.AppCore
         /// </summary>
         private void ShowBootErrorOverlay(string message)
         {
+            // Повторный показ заменяет прошлый оверлей, а не наслаивается.
+            _screensLayer.Q("bootErrorOverlay")?.RemoveFromHierarchy();
+
             var overlay = new VisualElement { name = "bootErrorOverlay" };
             overlay.style.position = Position.Absolute;
             overlay.style.left = 0;
@@ -488,6 +491,24 @@ namespace Exerussus.AppCore
             label.style.whiteSpace = WhiteSpace.Normal;
             label.style.maxWidth = Length.Percent(80);
             overlay.Add(label);
+
+            // Без кнопки оверлей — тупик там, где у приложения нет своего выхода (WebGL в чужом приложении).
+            var quit = CriticalQuit;
+            if (quit != null)
+            {
+                var close = new Button(() =>
+                {
+                    try { quit(); }
+                    catch (Exception e) { Debug.LogException(e); }
+                }) { text = Localization.LocBuiltin.Resolve(Localization.LocBuiltin.Close) };
+                close.style.marginTop = 32;
+                close.style.fontSize = 20;
+                close.style.paddingLeft = 32;
+                close.style.paddingRight = 32;
+                close.style.paddingTop = 12;
+                close.style.paddingBottom = 12;
+                overlay.Add(close);
+            }
 
             _screensLayer.Add(overlay);
             overlay.BringToFront();

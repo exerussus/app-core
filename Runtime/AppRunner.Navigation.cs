@@ -45,6 +45,9 @@ namespace Exerussus.AppCore
         /// </summary>
         private bool _isChangingPage;
 
+        /// <summary>Идёт переход между страницами: <see cref="CurrentPage"/> ещё старая, её вёрстка уже снята.</summary>
+        public bool IsChangingPage => _isChangingPage;
+
         /// <summary>Словарь для быстрого поиска страницы по типу.</summary>
         private readonly Dictionary<PageId, AppPage> _pagesDict = new();
 

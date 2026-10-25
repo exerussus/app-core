@@ -52,10 +52,17 @@ namespace Exerussus.AppCore
             else Debug.LogError($"[APP] ShowError без ErrorScreen: {message}");
         }
 
+        /// <summary>
+        /// Что делать по «Выйти»/«Закрыть» на критическом скрине и на аварийном оверлее.
+        /// null — <see cref="Application.Quit()"/> у скрина и оверлей без кнопки. Задавать там, где Application.Quit
+        /// ничего не делает (WebGL внутри чужого приложения): например, закрыть ридер-хост.
+        /// </summary>
+        public System.Action CriticalQuit { get; set; }
+
         /// <summary>Показывает терминальный критический скрин (reboot/quit). Доступно на любом этапе.</summary>
         public void ShowCritical(string message, bool canReboot = true)
         {
-            if (_hasCriticalScreen) criticalScreen.Show(message, canReboot, RestartBoot, null);
+            if (_hasCriticalScreen) criticalScreen.Show(message, canReboot, RestartBoot, CriticalQuit);
             else ShowBootErrorOverlay(message);
         }
 
