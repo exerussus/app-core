@@ -260,6 +260,27 @@ Settings). Пока она снята, локализации нет вовсе:
 переприменяет отступы только когда реально изменились безопасная зона, ориентация или
 разрешение: в обычном кадре это несколько сравнений структур и выход, без аллокаций.
 
+## Инструменты (без окон)
+
+`AppViewTools` и `AppNavigation` (сборка `Exerussus.AppCore.Editor`) делают то же, что инспекторы и страница App
+в Nexus, но без диалогов — для автоматизации. Через CLI Nexus (страница App, app-core 6.1+):
+
+```
+nexus app.views                                   вью: реестр, uxml, контроллер, объект в сцене
+nexus app.create page main_menu --controller --default
+nexus app.create popup shop --controller
+nexus app.create fragment hud --in game --host hud-slot
+nexus app.delete popup shop [--strip-classes] [--keep-files] [--keep-id]
+nexus app.uxml page settings | app.controller page settings
+nexus app.page.set settings --back previous --cursor unlock
+nexus app.generate | app.validate [--fix]
+nexus app.runner | app.runner.create | app.runner.set bootstrapper --type GameBootstrapper
+nexus app.deck "analytics.status" | app.deck --list
+```
+
+Команда, поменявшая код (`NavTargets`, контроллер), ждёт компиляции и печатает её итог; контроллер навешивается
+на объект после перезагрузки домена. Сцену сохраняет `--save` (или `nexus save`).
+
 ## AppDeck
 
 Панель приложения поверх всего — консоль, быстрые действия, метрики. Отдельная сборка

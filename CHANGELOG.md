@@ -3,6 +3,20 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [6.1.0]
+
+### Добавлено
+
+- `AppViewTools` (редактор) — операции над вью и раннером без окон и диалогов, для инструментов (CLI Nexus):
+  `CreateView` (id в реестре → uxml по шаблону → контроллер → объект под `AppRunner`, фрагмент — под владельцем),
+  `DeleteView` (объекты, папка вью, id; ссылки в коде — предупреждениями; посторонние файлы — только с `Force`),
+  `AddController`, `SetPageOptions` («Назад», курсор, стартовая), `GenerateAll`, `ListViews`, `FindRunner`,
+  `CreateRunner`, `SetRunnerObject` (бутстраппер, адаптер ввода, реестр сервисов, экраны). Ошибка — `AppToolException`.
+- `AppNavigation` (редактор) — реестр id и генерация навигации (записи, `Navigation.uss`, `NavTargets.cs`) в том же
+  формате, что страница App в Nexus; `Register` / `Unregister` / `Regenerate`, снятие и переименование классов в uxml.
+- `AppDeck.ExecuteCaptured(line, out output)` — выполнить команду и получить её вывод (работает и без окна консоли);
+  `AppDeck.ListCommands()`.
+
 ## [6.0.1]
 
 ### Документация

@@ -232,6 +232,60 @@ namespace Exerussus.AppCore.Deck
             return ok;
         }
 
+        /// <summary>
+        /// Выполнить строку и вернуть вывод команд — для инструментов (CLI редактора). Работает и без окна
+        /// консоли (AppDeck выключен настройками): регистрация команд — просто данные. Эхо не пишется.
+        /// </summary>
+        /// <param name="output">Строки вывода: «! » — предупреждение, «✗ » — ошибка.</param>
+        public static bool ExecuteCaptured(string line, out string output, CommandSource source = CommandSource.Code)
+        {
+            output = string.Empty;
+            if (string.IsNullOrWhiteSpace(line)) return true;
+
+            var previous = _capture;
+            var previousThread = _captureThread;
+            var capture = new List<(DeckLogType type, string message)>();
+            _capture = capture;
+            _captureThread = Thread.CurrentThread.ManagedThreadId;
+            bool ok;
+            try
+            {
+                ok = _commands.Execute(line, source, _target);
+            }
+            finally
+            {
+                _capture = previous;
+                _captureThread = previousThread;
+            }
+
+            if (IsMainThread) PumpLogs();
+
+            var sb = new System.Text.StringBuilder();
+            foreach (var (type, message) in capture)
+            {
+                if (type == DeckLogType.Error) sb.Append("✗ ");
+                else if (type == DeckLogType.Warning) sb.Append("! ");
+                sb.Append(message).Append('\n');
+            }
+
+            output = sb.ToString();
+            return ok;
+        }
+
+        /// <summary>Зарегистрированные команды по имени (скрытые — по флагу).</summary>
+        public static List<CommandSpec> ListCommands(bool includeHidden = false)
+        {
+            var list = new List<CommandSpec>();
+            for (int i = 0; i < _commands.SortedCount; i++)
+            {
+                var spec = _commands.Spec(_commands.SortedSlot(i));
+                if (spec == null || (spec.Hidden && !includeHidden)) continue;
+                list.Add(spec);
+            }
+
+            return list;
+        }
+
         // ================================================================ кнопки
 
         /// <summary>Кнопка во вкладке Actions: нажатие выполняет строку команд.</summary>
@@ -304,8 +358,15 @@ namespace Exerussus.AppCore.Deck
         // ================================================================ вывод
 
         /// <summary>Строка в консоль AppDeck (в консоль Unity не дублируется). Можно с любого потока.</summary>
-        public static void Print(string message, DeckLogType type = DeckLogType.Output, string stack = null) =>
+        public static void Print(string message, DeckLogType type = DeckLogType.Output, string stack = null)
+        {
+            // перехват вывода для инструментов (ExecuteCaptured): только поток, в котором идёт команда
+            if (_capture != null && Thread.CurrentThread.ManagedThreadId == _captureThread) _capture.Add((type, message));
             _intake?.Push(type, message, stack);
+        }
+
+        private static List<(DeckLogType type, string message)> _capture;
+        private static int _captureThread;
 
         /// <summary>Очистить консоль.</summary>
         public static void ClearLog() => _log?.Clear();
