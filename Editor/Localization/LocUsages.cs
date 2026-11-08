@@ -52,7 +52,25 @@ namespace Exerussus.AppCore.Editor.Localization
     public sealed class LocUsageIndex
     {
         private readonly Dictionary<string, List<LocUsage>> _byKey = new(StringComparer.Ordinal);
+        private readonly SortedSet<string> _prefixes = new(StringComparer.Ordinal);
         private static readonly List<LocUsage> Empty = new();
+
+        /// <summary>
+        /// Префиксы ключей, которые код собирает из частей: <c>Tr("alchemy.why." + id)</c> — найденная строка
+        /// кончается на «.», «_» или «-». Ключ с таким префиксом считается употреблённым.
+        /// </summary>
+        public IReadOnlyCollection<string> Prefixes => _prefixes;
+
+        /// <summary>Ключ собирается кодом по найденному префиксу.</summary>
+        public bool IsPrefixed(string key)
+        {
+            if (key == null || _prefixes.Count == 0) return false;
+            foreach (var prefix in _prefixes)
+                if (key.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        internal void AddPrefix(string prefix) => _prefixes.Add(prefix);
 
         public int FilesScanned { get; internal set; }
         public double Seconds { get; internal set; }
@@ -98,6 +116,9 @@ namespace Exerussus.AppCore.Editor.Localization
     {
         public const string CaretKind = "^";
         public const string ConstKind = "L";
+
+        // Служебный вид: найденная строка — префикс ключа, собираемого кодом (в индекс как префикс, не употребление).
+        private const string PrefixKind = "prefix";
 
         private const long MaxFileSize = 32L * 1024 * 1024;
 
@@ -299,7 +320,11 @@ namespace Exerussus.AppCore.Editor.Localization
                 for (var i = 0; i < count; i++)
                 {
                     if (found[i] == null) continue;
-                    foreach (var usage in found[i]) index.Add(usage);
+                    foreach (var usage in found[i])
+                    {
+                        if (usage.Kind == PrefixKind) index.AddPrefix(usage.Key);
+                        else index.Add(usage);
+                    }
                 }
             }
 
@@ -422,6 +447,11 @@ namespace Exerussus.AppCore.Editor.Localization
                         if (!constants.TryGetValue(key, out key) || key == null) continue;
                     }
                     else if (!LocSlots.IsValidKey(key)) continue;
+                    else if (IsPrefix(key))
+                    {
+                        if (!rule.KnownOnly) add(new LocUsage { Key = key, File = relative, Kind = PrefixKind });
+                        continue;
+                    }
                     else if (rule.KnownOnly && !known.Contains(key)) continue;
 
                     taken ??= new HashSet<int>();
@@ -437,6 +467,13 @@ namespace Exerussus.AppCore.Editor.Localization
                     });
                 }
             }
+        }
+
+        /// <summary>Строка кончается на разделитель — это префикс собираемого ключа, а не ключ.</summary>
+        private static bool IsPrefix(string key)
+        {
+            var last = key[key.Length - 1];
+            return last == '.' || last == '_' || last == '-';
         }
 
         private static List<int> LineStarts(string text)

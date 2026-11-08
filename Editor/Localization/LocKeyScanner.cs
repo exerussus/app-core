@@ -75,10 +75,10 @@ namespace Exerussus.AppCore.Editor.Localization
             foreach (var entry in table.Entries) keys.Add(entry.Key);
 
             index ??= LocUsages.Scan(settings, keys);
-            return Check(table, settings, ToFiles(index));
+            return Check(table, settings, ToFiles(index), index);
         }
 
-        private static Report Check(LocTable table, LocSettings settings, Dictionary<string, List<string>> usages)
+        private static Report Check(LocTable table, LocSettings settings, Dictionary<string, List<string>> usages, LocUsageIndex index)
         {
             var report = new Report();
 
@@ -88,8 +88,9 @@ namespace Exerussus.AppCore.Editor.Localization
                 report.Unknown[pair.Key] = pair.Value;
             }
 
+            // Ключ, который код собирает по найденному префиксу (Tr("alchemy.why." + id)), употреблён.
             foreach (var entry in table.Entries)
-                if (!usages.ContainsKey(entry.Key) && !IsDynamic(entry.Key, settings))
+                if (!usages.ContainsKey(entry.Key) && !IsDynamic(entry.Key, settings) && (index == null || !index.IsPrefixed(entry.Key)))
                     report.Unused.Add(entry.Key);
 
             report.Unused.Sort(StringComparer.Ordinal);
