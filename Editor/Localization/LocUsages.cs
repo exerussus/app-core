@@ -126,6 +126,9 @@ namespace Exerussus.AppCore.Editor.Localization
         private static readonly string[] SkippedFragments = { "/NexusStates/", "/Editor/NexusPlugins/", "/" + Path.GetFileName(AppCorePaths.LocKeysPath) };
 
         internal static readonly Regex CaretPattern = new(@"(?<=[""'\s=,;|>]|&#10;)\^([A-Za-z][A-Za-z0-9_.\-]*[A-Za-z0-9_]|[A-Za-z])", RegexOptions.Compiled);
+        // В коде «^KEY» — только литерал целиком: "^MENU_PLAY". Иначе в счёт попадают регулярки вида "^(?<l>…)".
+        internal static readonly Regex CaretCodePattern = new(@"(?<="")\^([A-Za-z][A-Za-z0-9_.\-]*[A-Za-z0-9_]|[A-Za-z])(?="")", RegexOptions.Compiled);
+
         internal static readonly Regex ConstPattern = new(@"\bL\.([A-Za-z_][A-Za-z0-9_]*)\b", RegexOptions.Compiled);
 
         private static List<ILocUsageProvider> _providers;
@@ -184,11 +187,21 @@ namespace Exerussus.AppCore.Editor.Localization
             var rules = new List<Rule>();
             var extensions = settings != null ? settings.UsageExtensions : new[] { ".uxml", ".cs", ".prefab", ".asset", ".unity" };
 
+            var markup = ExtensionSet(extensions);
+            var code = markup.Remove(".cs");
+
             rules.Add(new Rule
             {
-                Kind = CaretKind, Regex = CaretPattern, GroupIndex = 1, Extensions = ExtensionSet(extensions),
+                Kind = CaretKind, Regex = CaretPattern, GroupIndex = 1, Extensions = markup,
                 Folders = new[] { "Assets/" }, Replace = LocUsageReplace.Key,
             });
+
+            if (code)
+                rules.Add(new Rule
+                {
+                    Kind = CaretKind, Regex = CaretCodePattern, GroupIndex = 1, Extensions = ExtensionSet(new[] { ".cs" }),
+                    Folders = new[] { "Assets/" }, Replace = LocUsageReplace.Key,
+                });
 
             rules.Add(new Rule
             {
