@@ -144,6 +144,7 @@ namespace Exerussus.AppCore.Editor.Localization
             public string[] Folders;
             public LocUsageReplace Replace;
             public bool IsConst;
+            public bool KnownOnly;
 
             public bool Applies(string relative, string extension)
             {
@@ -204,6 +205,7 @@ namespace Exerussus.AppCore.Editor.Localization
                     Extensions = ExtensionSet(Split(pattern.extensions, ".cs")),
                     Folders = Folders(Split(pattern.folders, null)),
                     Replace = pattern.replace,
+                    KnownOnly = pattern.knownOnly,
                 });
             }
 
@@ -257,28 +259,51 @@ namespace Exerussus.AppCore.Editor.Localization
             var index = new LocUsageIndex();
             var rules = Rules(settings, errors);
             var constants = ConstantMap(knownKeys);
+            var known = knownKeys as HashSet<string> ?? new HashSet<string>(knownKeys, StringComparer.Ordinal);
             var excludes = settings != null ? settings.UsageExcludes : Array.Empty<string>();
 
+            // Чтение и разбор — параллельно пачками (Unity API здесь нет), прогресс — между пачками на главном потоке.
             var files = Files(rules, excludes);
-            for (var i = 0; i < files.Count; i++)
+            const int chunk = 512;
+            var found = new List<LocUsage>[Math.Min(chunk, Math.Max(1, files.Count))];
+            var scanned = 0;
+
+            for (var start = 0; start < files.Count; start += chunk)
             {
-                if (progress != null && (i & 63) == 0 && progress(files.Count == 0 ? 1f : (float)i / files.Count)) break;
+                if (progress != null && progress((float)start / files.Count)) break;
 
-                var (full, relative) = files[i];
-                string text;
-                try
+                var count = Math.Min(chunk, files.Count - start);
+                var offset = start;
+                System.Threading.Tasks.Parallel.For(0, count, i =>
                 {
-                    if (new FileInfo(full).Length > MaxFileSize) continue;
-                    text = System.IO.File.ReadAllText(full);
-                }
-                catch (Exception)
-                {
-                    continue;
-                }
+                    var (full, relative) = files[offset + i];
+                    found[i] = null;
+                    string text;
+                    try
+                    {
+                        if (new FileInfo(full).Length > MaxFileSize) return;
+                        text = System.IO.File.ReadAllText(full);
+                    }
+                    catch (Exception)
+                    {
+                        return;
+                    }
 
-                index.FilesScanned++;
-                ScanText(text, relative, rules, constants, index.Add);
+                    System.Threading.Interlocked.Increment(ref scanned);
+                    List<LocUsage> list = null;
+                    ScanText(text, relative, rules, constants, known, u => (list ??= new List<LocUsage>()).Add(u));
+                    found[i] = list;
+                });
+
+                // Порядок файлов сохраняется — итог одинаковый от запуска к запуску.
+                for (var i = 0; i < count; i++)
+                {
+                    if (found[i] == null) continue;
+                    foreach (var usage in found[i]) index.Add(usage);
+                }
             }
+
+            index.FilesScanned = scanned;
 
             foreach (var provider in Providers)
             {
@@ -371,10 +396,14 @@ namespace Exerussus.AppCore.Editor.Localization
             return map;
         }
 
-        private static void ScanText(string text, string relative, List<Rule> rules, Dictionary<string, string> constants, Action<LocUsage> add)
+        private static void ScanText(string text, string relative, List<Rule> rules, Dictionary<string, string> constants,
+                                     HashSet<string> known, Action<LocUsage> add)
         {
             var extension = Path.GetExtension(relative);
             List<int> lines = null;
+
+            // Одно место, найденное двумя шаблонами (вызов и литерал), засчитывается один раз.
+            HashSet<int> taken = null;
 
             foreach (var rule in rules)
             {
@@ -393,6 +422,10 @@ namespace Exerussus.AppCore.Editor.Localization
                         if (!constants.TryGetValue(key, out key) || key == null) continue;
                     }
                     else if (!LocSlots.IsValidKey(key)) continue;
+                    else if (rule.KnownOnly && !known.Contains(key)) continue;
+
+                    taken ??= new HashSet<int>();
+                    if (!taken.Add(group.Index)) continue;
 
                     lines ??= LineStarts(text);
                     var line = LineOf(lines, group.Index);
@@ -519,21 +552,30 @@ namespace Exerussus.AppCore.Editor.Localization
             var rules = Rules(settings, errors);
             var excludes = settings != null ? settings.UsageExcludes : Array.Empty<string>();
 
-            foreach (var (full, relative) in Files(rules, excludes))
+            // Отсев параллельно: читаем всё и оставляем файлы, где есть байты ключа или константы (ключ — ASCII).
+            var all = Files(rules, excludes);
+            var contents = new byte[all.Count][];
+            var fromBytes = Encoding.ASCII.GetBytes(from);
+            var constBytes = Encoding.ASCII.GetBytes(fromConst);
+            System.Threading.Tasks.Parallel.For(0, all.Count, i =>
             {
-                byte[] bytes;
                 try
                 {
-                    if (new FileInfo(full).Length > MaxFileSize) continue;
-                    bytes = System.IO.File.ReadAllBytes(full);
+                    if (new FileInfo(all[i].full).Length > MaxFileSize) return;
+                    var data = System.IO.File.ReadAllBytes(all[i].full);
+                    if (IndexOf(data, fromBytes) >= 0 || IndexOf(data, constBytes) >= 0) contents[i] = data;
                 }
                 catch (Exception)
                 {
-                    continue;
+                    // нечитаемый файл — не употребление
                 }
+            });
 
-                // Быстрый отсев по байтам ключа (ключ — ASCII).
-                if (IndexOf(bytes, Encoding.ASCII.GetBytes(from)) < 0 && IndexOf(bytes, Encoding.ASCII.GetBytes(fromConst)) < 0) continue;
+            for (var fileIndex = 0; fileIndex < all.Count; fileIndex++)
+            {
+                var bytes = contents[fileIndex];
+                if (bytes == null) continue;
+                var (full, relative) = all[fileIndex];
 
                 var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
                 string text;
@@ -617,23 +659,7 @@ namespace Exerussus.AppCore.Editor.Localization
             }
         }
 
-        private static int IndexOf(byte[] haystack, byte[] needle)
-        {
-            if (needle.Length == 0) return -1;
-            for (var i = 0; i <= haystack.Length - needle.Length; i++)
-            {
-                var ok = true;
-                for (var j = 0; j < needle.Length; j++)
-                {
-                    if (haystack[i + j] == needle[j]) continue;
-                    ok = false;
-                    break;
-                }
-
-                if (ok) return i;
-            }
-
-            return -1;
-        }
+        private static int IndexOf(byte[] haystack, byte[] needle) =>
+            needle.Length == 0 ? -1 : ((ReadOnlySpan<byte>)haystack).IndexOf(needle);
     }
 }

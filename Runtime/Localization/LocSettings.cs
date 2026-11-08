@@ -48,6 +48,10 @@ namespace Exerussus.AppCore.Localization
 
         [Tooltip("Чем заменять ключ при переименовании: ключ как есть (Key) или идентификатором (Identifier: точки и минусы → _).")]
         public LocUsageReplace replace = LocUsageReplace.Key;
+
+        [Tooltip("Засчитывать только ключи, которые есть в таблицах: для шаблонов общего вида (любой строковый литерал " +
+                 "с точкой) — иначе каждая такая строка попала бы в «нет в таблицах».")]
+        public bool knownOnly;
     }
 
     /// <summary>Как шаблон пишет ключ в употреблении.</summary>
