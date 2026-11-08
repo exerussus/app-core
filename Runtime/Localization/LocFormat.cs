@@ -199,6 +199,21 @@ namespace Exerussus.AppCore.Localization
             return result;
         }
 
+        /// <summary>
+        /// Нестрогий разбор: строки с ошибкой отброшены (ошибки остаются в результате), пустые значения
+        /// сняты — таблицей можно пользоваться, даже если <see cref="LocParseResult.Ok"/> == false.
+        /// Так читаются пакеты модов: одна опечатка гасит одну строку, а не все тексты.
+        /// </summary>
+        public static LocParseResult ParseLenient(string text)
+        {
+            var result = Parse(text);
+
+            foreach (var entry in result.Table.Entries)
+                entry.Values.RemoveAll(v => v.Text != null && v.Text.Length == 0);
+
+            return result;
+        }
+
         private static int Indent(string line, out int start)
         {
             var indent = 0;

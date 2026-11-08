@@ -97,10 +97,15 @@ namespace Exerussus.AppCore.Editor
                 {
                     if (!extensions.Exists(e => string.Equals(e, ".loc", StringComparison.OrdinalIgnoreCase))) extensions.Add(".loc");
 
-                    var table = loc.BaseTable != null ? UnityEditor.AssetDatabase.GetAssetPath(loc.BaseTable) : null;
-                    var dir = string.IsNullOrEmpty(table) ? null : Path.GetDirectoryName(table)?.Replace('\\', '/');
-                    if (!string.IsNullOrEmpty(dir) && !folders.Exists(f => !string.IsNullOrEmpty(f) && dir.StartsWith(f.TrimEnd('/'), StringComparison.Ordinal)))
-                        folders.Add(dir);
+                    // База и все пакеты каталога (маски или провайдер проекта).
+                    foreach (var file in Localization.LocPackageCatalog.Collect(loc))
+                    {
+                        if (file.Path.IndexOf(':') >= 0 || file.Path.StartsWith("/", StringComparison.Ordinal)) continue;
+
+                        var dir = Path.GetDirectoryName(file.Path)?.Replace('\\', '/');
+                        if (!string.IsNullOrEmpty(dir) && !folders.Exists(f => !string.IsNullOrEmpty(f) && dir.StartsWith(f.TrimEnd('/'), StringComparison.Ordinal)))
+                            folders.Add(dir);
+                    }
                 }
 
                 ScanSources(scanned, folders, extensions, out filesScanned, locations);

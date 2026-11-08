@@ -1,7 +1,67 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Exerussus.AppCore.Localization
 {
+    /// <summary>Кто кладёт пакеты локализации в игре.</summary>
+    public enum LocPackageLoading
+    {
+        /// <summary>AppCore сам: пакеты каталога (маски или провайдер редактора) запекаются в настройки перед сборкой.</summary>
+        Auto = 0,
+
+        /// <summary>Проект: свой загрузчик отдаёт пакеты через <see cref="Loc.SetPackages"/> (порядок модов, паки из StreamingAssets).</summary>
+        Project = 1,
+    }
+
+    /// <summary>Пакет, запечённый редактором для <see cref="LocPackageLoading.Auto"/>: ассет или файл в StreamingAssets.</summary>
+    [Serializable]
+    public sealed class LocPackageRef
+    {
+        public string id;
+
+        [Tooltip("Таблица, импортированная как TextAsset (вне StreamingAssets).")]
+        public TextAsset asset;
+
+        [Tooltip("Путь внутри StreamingAssets — читается с диска в игре.")]
+        public string streamingPath;
+    }
+
+    /// <summary>
+    /// Шаблон употребления ключа без <c>^</c>: регулярное выражение с группой <c>key</c>
+    /// (или первой группой) — <c>Loc\.Tr\(\s*"(?&lt;key&gt;[^"]+)"</c>.
+    /// </summary>
+    [Serializable]
+    public sealed class LocUsagePattern
+    {
+        [Tooltip("Подпись в списке употреблений.")]
+        public string name;
+
+        [Tooltip("Регулярное выражение с группой (?<key>…) или первой группой.")]
+        public string regex;
+
+        [Tooltip("Расширения через ; (.cs;.sal). Пусто — .cs.")]
+        public string extensions = ".cs";
+
+        [Tooltip("Папки от корня проекта через ; (Assets/Game;Assets/StreamingAssets). Пусто — Assets.")]
+        public string folders;
+
+        [Tooltip("Чем заменять ключ при переименовании: ключ как есть (Key) или идентификатором (Identifier: точки и минусы → _).")]
+        public LocUsageReplace replace = LocUsageReplace.Key;
+    }
+
+    /// <summary>Как шаблон пишет ключ в употреблении.</summary>
+    public enum LocUsageReplace
+    {
+        /// <summary>Ключ как есть.</summary>
+        Key = 0,
+
+        /// <summary>Идентификатор C#: всё, кроме букв, цифр и _, заменено на _.</summary>
+        Identifier = 1,
+
+        /// <summary>Не переименовывать — только находить.</summary>
+        None = 2,
+    }
     /// <summary>Какой язык включить на первом запуске (без сохранённого выбора).</summary>
     public enum LocStartLanguage
     {
@@ -88,6 +148,34 @@ namespace Exerussus.AppCore.Localization
         [Tooltip("Префиксы ключей, которые собираются в коде (PLANET_ + id). Проверки не считают такие ключи лишними.")]
         [SerializeField] private string[] dynamicPrefixes = new string[0];
 
+        [Header("Пакеты")]
+        [Tooltip("Где лежат пакеты локализации (.loc модулей), маски от корня проекта: Assets/**/Localization/*.loc, " +
+                 "Assets/StreamingAssets/Core/*/phrases/*.loc. ** — любые папки, * — часть имени. Базовая таблица в пакеты не входит. " +
+                 "Провайдер проекта (ILocPackageProvider в редакторской сборке) заменяет маски.")]
+        [SerializeField] private string[] packageMasks = new string[0];
+
+        [Tooltip("Маски, которые из пакетов исключаются.")]
+        [SerializeField] private string[] packageExcludes = new string[0];
+
+        [Tooltip("Кто кладёт пакеты в игре. Auto — AppCore сам (порядок — как в каталоге); Project — загрузчик проекта через Loc.SetPackages.")]
+        [SerializeField] private LocPackageLoading packageLoading = LocPackageLoading.Auto;
+
+        [Tooltip("Нестрогое чтение пакетов: строка с ошибкой отбрасывается, остальное принимается.")]
+        [SerializeField] private bool lenientPackages = true;
+
+        // Запекает редактор (импорт .loc, перед сборкой) для режима Auto.
+        [SerializeField, HideInInspector] private List<LocPackageRef> packages = new();
+
+        [Header("Употребления")]
+        [Tooltip("Где искать «^KEY» и L.KEY: расширения файлов.")]
+        [SerializeField] private string[] usageExtensions = { ".uxml", ".cs", ".prefab", ".asset", ".unity" };
+
+        [Tooltip("Ключи без «^»: свои шаблоны вызовов (Loc.Tr(\"key\"), Say(\"key\"), константы).")]
+        [SerializeField] private LocUsagePattern[] usagePatterns = new LocUsagePattern[0];
+
+        [Tooltip("Части путей, которые поиск употреблений пропускает (/ThirdParty/, /Plugins/Vendor/).")]
+        [SerializeField] private string[] usageExcludes = new string[0];
+
         [Header("Язык")]
         [SerializeField] private LocStartLanguage startLanguage = LocStartLanguage.System;
 
@@ -137,6 +225,14 @@ namespace Exerussus.AppCore.Localization
         public string PrimaryLanguage => primaryLanguage;
         public string MissingText => missingText;
         public string[] DynamicPrefixes => dynamicPrefixes ?? new string[0];
+        public string[] PackageMasks => packageMasks ?? new string[0];
+        public string[] PackageExcludes => packageExcludes ?? new string[0];
+        public LocPackageLoading PackageLoading => packageLoading;
+        public bool LenientPackages => lenientPackages;
+        public IReadOnlyList<LocPackageRef> Packages => packages ??= new List<LocPackageRef>();
+        public string[] UsageExtensions => usageExtensions ?? new string[0];
+        public LocUsagePattern[] UsagePatterns => usagePatterns ?? new LocUsagePattern[0];
+        public string[] UsageExcludes => usageExcludes ?? new string[0];
         public LocStartLanguage StartLanguage => startLanguage;
         public string FixedLanguage => fixedLanguage;
         public bool RememberChoice => rememberChoice;

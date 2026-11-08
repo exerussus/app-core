@@ -228,16 +228,21 @@ namespace Exerussus.AppCore.Localization
         /// <summary>Сколько изменений слоя отклонено (защита, удаления, разметка).</summary>
         public readonly int Rejected;
 
-        public LocLayerInfo(string id, LocSource source, int keys, string path, int rejected)
+        /// <summary>Слой — пакет (<see cref="Loc.SetPackages"/>), а не слой <see cref="Loc.AddLayer"/>.</summary>
+        public readonly bool IsPackage;
+
+        public LocLayerInfo(string id, LocSource source, int keys, string path, int rejected, bool isPackage = false)
         {
             Id = id;
             Source = source;
             Keys = keys;
             Path = path;
             Rejected = rejected;
+            IsPackage = isPackage;
         }
 
-        public override string ToString() => $"{Id} [{Source}] ключей: {Keys}" + (Rejected > 0 ? $", отклонено: {Rejected}" : string.Empty);
+        public override string ToString() =>
+            $"{Id} [{Source}{(IsPackage ? ", пакет" : string.Empty)}] ключей: {Keys}" + (Rejected > 0 ? $", отклонено: {Rejected}" : string.Empty);
     }
 
     /// <summary>Ключи значений внутри записи: <c>ru</c>, <c>ru.few</c>.</summary>

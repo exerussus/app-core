@@ -17,7 +17,7 @@ namespace Exerussus.AppCore.Localization
     /// </para>
     /// <para>
     /// Таблица собирается из слоёв по порядку: встроенный <c>appcore</c>, базовая таблица
-    /// проекта <c>base</c>, дальше слои, добавленные через <see cref="AddLayer"/>, в порядке
+    /// проекта <c>base</c>, пакеты модулей (<see cref="SetPackages"/>), дальше слои, добавленные через <see cref="AddLayer"/>, в порядке
     /// добавления. Каждый слой дополняет и заменяет значения предыдущих; приоритетов нет —
     /// порядок решает тот, кто слои добавляет (загрузчик модов проекта). Id слоя задаёт
     /// вызывающий, он обязан быть уникальным: по нему видно в истории, кто что изменил.
@@ -45,6 +45,9 @@ namespace Exerussus.AppCore.Localization
             public LocTable Table;
             public string Path;
             public int Rejected;
+
+            /// <summary>Пакет, из которого слой (<see cref="SetPackages"/>). <c>null</c> — обычный слой.</summary>
+            public LocPackage Package;
         }
 
         private static readonly List<Layer> External = new();
@@ -87,6 +90,7 @@ namespace Exerussus.AppCore.Localization
         private static void ResetStatics()
         {
             External.Clear();
+            PackageGroups.Clear();
             _appCoreLayer = null;
             _baseLayer = null;
             Values.Clear();
@@ -400,7 +404,7 @@ namespace Exerussus.AppCore.Localization
                 if (!EnsureInitialized()) return list;
 
                 foreach (var layer in AllLayers())
-                    list.Add(new LocLayerInfo(layer.Id, layer.Source, layer.Table.Count, layer.Path, layer.Rejected));
+                    list.Add(new LocLayerInfo(layer.Id, layer.Source, layer.Table.Count, layer.Path, layer.Rejected, layer.Package != null));
                 return list;
             }
         }
@@ -505,6 +509,8 @@ namespace Exerussus.AppCore.Localization
             if (!Enabled) return;
 
             _baseLayer = LoadBase();
+            LoadAutoPackages(false);
+            ReloadPackages();
 
             foreach (var layer in External)
             {
@@ -531,6 +537,7 @@ namespace Exerussus.AppCore.Localization
                 return;
             }
 
+            LoadAutoPackages(false);
             Rebuild();
             RaiseChanged();
         }
@@ -547,6 +554,7 @@ namespace Exerussus.AppCore.Localization
             _active = true;
             _appCoreLayer = new Layer { Id = AppCoreLayerId, Source = LocSource.AppCore, Table = LocBuiltin.CreateTable() };
             _baseLayer = LoadBase();
+            LoadAutoPackages(false);
 
             Rebuild();
             return true;
@@ -616,9 +624,9 @@ namespace Exerussus.AppCore.Localization
                 return false;
             }
 
-            if (External.Exists(l => l.Id == id))
+            if (External.Exists(l => l.Id == id) || IsLayerIdTaken(id, null))
             {
-                Debug.LogError($"[Loc] Слой «{id}» уже добавлен: id слоёв должны быть уникальными.");
+                Debug.LogError($"[Loc] Слой «{id}» уже добавлен (слоем или пакетом): id слоёв должны быть уникальными.");
                 return false;
             }
 
@@ -649,6 +657,7 @@ namespace Exerussus.AppCore.Localization
         {
             if (_appCoreLayer != null) yield return _appCoreLayer;
             if (_baseLayer != null) yield return _baseLayer;
+            foreach (var layer in PackageLayers()) yield return layer;
             foreach (var layer in External) yield return layer;
         }
 

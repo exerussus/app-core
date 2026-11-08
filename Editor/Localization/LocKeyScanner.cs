@@ -1,80 +1,32 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
-using System.Text.RegularExpressions;
-using UnityEngine;
 using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Editor.Localization
 {
     /// <summary>
-    /// Ищет ключи в проекте: <c>^KEY</c> в вёрстке, коде, префабах, ассетах и сценах и <c>L.KEY</c> в коде.
-    /// По нему видно ключи без использования и ключи, которых нет в таблице.
+    /// Сверка проекта с таблицами: ключи без использования и ключи, которых нет ни в базе, ни в пакетах.
+    /// Поиск употреблений — <see cref="LocUsages"/> («^KEY», <c>L.KEY</c>, шаблоны настроек, провайдеры).
     /// </summary>
-    /// <remarks>
-    /// <c>^KEY</c> засчитывается только в начале значения: после кавычки, пробела, <c>=</c>, <c>,</c>,
-    /// <c>;</c>, <c>|</c>, <c>&gt;</c> или переноса <c>&amp;#10;</c> — иначе в счёт попали бы степени
-    /// вроде «10^{mass}» и XOR в коде. Символы ключа — те же, что допускает формат (<see cref="LocSlots.IsValidKey"/>).
-    /// </remarks>
     public static class LocKeyScanner
     {
-        private static readonly string[] Extensions = { ".uxml", ".cs", ".prefab", ".asset", ".unity" };
-
-        // Деплой Nexus и сгенерированные константы ключей — не использования.
-        private static readonly string[] SkippedFragments = { "/NexusStates/", "/Editor/NexusPlugins/", "/" + Path.GetFileName(AppCorePaths.LocKeysPath) };
-
-        private static readonly Regex KeyPattern = new(@"(?<=[""'\s=,;|>]|&#10;)\^([A-Za-z][A-Za-z0-9_.\-]*[A-Za-z0-9_]|[A-Za-z])", RegexOptions.Compiled);
-        private static readonly Regex ConstPattern = new(@"\bL\.([A-Z][A-Z0-9_]*)\b", RegexOptions.Compiled);
-
         /// <summary>Ключ → файлы (пути от корня проекта), где он встречается.</summary>
-        public static Dictionary<string, List<string>> Scan()
+        public static Dictionary<string, List<string>> Scan() => ToFiles(LocUsages.Scan());
+
+        /// <summary>Ключ → файлы по готовому индексу.</summary>
+        public static Dictionary<string, List<string>> ToFiles(LocUsageIndex index)
         {
             var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-            var root = Application.dataPath;
-            var projectRoot = Path.GetDirectoryName(root) ?? root;
-
-            foreach (var file in Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories))
+            foreach (var key in index.Keys)
             {
-                var extension = Path.GetExtension(file);
-                if (Array.IndexOf(Extensions, extension) < 0) continue;
-
-                var relative = file.Substring(projectRoot.Length + 1).Replace('\\', '/');
-                if (IsSkipped(relative)) continue;
-
-                string text;
-                try
-                {
-                    text = File.ReadAllText(file);
-                }
-                catch (IOException)
-                {
-                    continue;
-                }
-
-                if (text.IndexOf('^') >= 0)
-                    foreach (Match match in KeyPattern.Matches(text))
-                        Add(result, match.Groups[1].Value, relative);
-
-                if (extension == ".cs" && text.IndexOf("L.", StringComparison.Ordinal) >= 0)
-                    foreach (Match match in ConstPattern.Matches(text))
-                        Add(result, match.Groups[1].Value, relative);
+                var files = new List<string>();
+                foreach (var usage in index.Of(key))
+                    if (!files.Contains(usage.File)) files.Add(usage.File);
+                result[key] = files;
             }
 
             return result;
-        }
-
-        private static void Add(Dictionary<string, List<string>> result, string key, string file)
-        {
-            if (!result.TryGetValue(key, out var files)) result[key] = files = new List<string>();
-            if (!files.Contains(file)) files.Add(file);
-        }
-
-        private static bool IsSkipped(string path)
-        {
-            foreach (var fragment in SkippedFragments)
-                if (path.IndexOf(fragment, StringComparison.Ordinal) >= 0) return true;
-            return false;
         }
 
         /// <summary>Ключ собирается в коде (<see cref="LocSettings.DynamicPrefixes"/>).</summary>
@@ -116,10 +68,19 @@ namespace Exerussus.AppCore.Editor.Localization
             }
         }
 
-        public static Report Check(LocTable table, LocSettings settings)
+        /// <summary>Сверка таблицы (обычно сводной — <see cref="LocEditor.ReadMerged"/>) с проектом.</summary>
+        public static Report Check(LocTable table, LocSettings settings, LocUsageIndex index = null)
+        {
+            var keys = new HashSet<string>(LocEditor.BuiltinKeys, StringComparer.Ordinal);
+            foreach (var entry in table.Entries) keys.Add(entry.Key);
+
+            index ??= LocUsages.Scan(settings, keys);
+            return Check(table, settings, ToFiles(index));
+        }
+
+        private static Report Check(LocTable table, LocSettings settings, Dictionary<string, List<string>> usages)
         {
             var report = new Report();
-            var usages = Scan();
 
             foreach (var pair in usages)
             {
