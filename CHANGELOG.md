@@ -3,6 +3,29 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [6.2.0]
+
+### Добавлено
+
+- Пакеты локализации модулей: `LocPackage` (`FromFile`, `FromText`, `FromTable`), `Loc.SetPackages(owner, list)` —
+  заменить пакеты владельца одной пересборкой, `ClearPackages`, `PackagesOf`. Слои пакетов — между `base` и слоями
+  `AddLayer`; `LocLayerInfo.IsPackage`. Пакеты из файлов перечитывает `Loc.Reload`.
+- `LocFormat.ParseLenient` — нестрогий разбор: строки с ошибкой отброшены, пустые значения сняты.
+- Настройки: `Package Masks` / `Package Excludes` (где редактор ищет пакеты), `Package Loading` (`Auto` — AppCore
+  кладёт пакеты сам по запечённому списку, `Project` — загрузчик проекта), `Lenient Packages`, `Usage Extensions`,
+  `Usage Patterns` (ключи без «^»), `Usage Excludes`.
+- Редактор: `LocPackageCatalog` + `ILocPackageProvider` (каталог пакетов, маски, запекание списка для `Auto`),
+  `LocWorkspace` (сводная рабочая копия всех таблиц с раскладкой правок по файлам, перенос, переименование,
+  удаление, новый пакет, конфликты с диском), `LocUsages` + `ILocUsageProvider` (употребления, план и применение
+  переименования), `LocEditor.ReadMerged` / `ReadAllKeys` / `IdentifierOf`.
+- `[LocKey]` и `LocKeyField` — поле выбора ключа: текст вместо ключа, поиск по тексту и ключу, новый ключ в пакете.
+
+### Изменено
+
+- Константы `L`, проверка ключей перед сборкой и проверка символов шрифта работают по базе и всем пакетам.
+- `L.X` в поиске употреблений засчитывается ключу по имени константы (ключи с точками), а не только `L.UPPER_CASE`.
+- `LocKeyScanner` — обёртка над `LocUsages`; `Check` принимает сводную таблицу и готовый индекс.
+
 ## [6.1.1]
 
 ### Добавлено

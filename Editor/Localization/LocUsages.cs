@@ -138,7 +138,7 @@ namespace Exerussus.AppCore.Editor.Localization
         {
             public string Kind;
             public Regex Regex;
-            public int Group;
+            public int GroupIndex;
             public string GroupName;
             public HashSet<string> Extensions;
             public string[] Folders;
@@ -154,7 +154,7 @@ namespace Exerussus.AppCore.Editor.Localization
                 return false;
             }
 
-            public Group KeyGroup(Match match) => GroupName != null ? match.Groups[GroupName] : match.Groups[Group];
+            public Group KeyGroup(Match match) => GroupName != null ? match.Groups[GroupName] : match.Groups[GroupIndex];
         }
 
         private static List<Rule> Rules(LocSettings settings, List<string> errors)
@@ -164,13 +164,13 @@ namespace Exerussus.AppCore.Editor.Localization
 
             rules.Add(new Rule
             {
-                Kind = CaretKind, Regex = CaretPattern, Group = 1, Extensions = ExtensionSet(extensions),
+                Kind = CaretKind, Regex = CaretPattern, GroupIndex = 1, Extensions = ExtensionSet(extensions),
                 Folders = new[] { "Assets/" }, Replace = LocUsageReplace.Key,
             });
 
             rules.Add(new Rule
             {
-                Kind = ConstKind, Regex = ConstPattern, Group = 1, Extensions = ExtensionSet(new[] { ".cs" }),
+                Kind = ConstKind, Regex = ConstPattern, GroupIndex = 1, Extensions = ExtensionSet(new[] { ".cs" }),
                 Folders = new[] { "Assets/" }, Replace = LocUsageReplace.Identifier, IsConst = true,
             });
 
@@ -199,7 +199,7 @@ namespace Exerussus.AppCore.Editor.Localization
                 {
                     Kind = string.IsNullOrWhiteSpace(pattern.name) ? pattern.regex : pattern.name,
                     Regex = regex,
-                    Group = 1,
+                    GroupIndex = 1,
                     GroupName = named ? "key" : null,
                     Extensions = ExtensionSet(Split(pattern.extensions, ".cs")),
                     Folders = Folders(Split(pattern.folders, null)),

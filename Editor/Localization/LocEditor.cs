@@ -268,6 +268,7 @@ namespace Exerussus.AppCore.Editor.Localization
                 if (EditorApplication.isCompiling) return;
 
                 // Каталог пакетов мог измениться: новый, удалённый, перенесённый .loc.
+                LocKeyCache.Invalidate();
                 LocPackageCatalog.BakeRuntimeList();
                 LocEditor.GenerateKeys();
 

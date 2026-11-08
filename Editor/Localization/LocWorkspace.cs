@@ -127,8 +127,20 @@ namespace Exerussus.AppCore.Editor.Localization
             return workspace;
         }
 
+        /// <summary>Рабочая копия по готовому списку файлов (порядок — порядок применения). Для инструментов и тестов.</summary>
+        public static LocWorkspace Load(List<LocPackageFile> files)
+        {
+            var workspace = new LocWorkspace();
+            workspace._fixed = files;
+            workspace.Read(files);
+            return workspace;
+        }
+
+        // список файлов, заданный снаружи (Load(files)): Reload читает его, а не каталог
+        private List<LocPackageFile> _fixed;
+
         /// <summary>Перечитать с диска (несохранённое пропадает).</summary>
-        public void Reload(LocSettings settings = null) => Read(LocPackageCatalog.Collect(settings));
+        public void Reload(LocSettings settings = null) => Read(_fixed ?? LocPackageCatalog.Collect(settings));
 
         private void Read(List<LocPackageFile> catalog)
         {
@@ -279,6 +291,32 @@ namespace Exerussus.AppCore.Editor.Localization
                 if (files[i].Writable) return files[i];
 
             return DefaultFile;
+        }
+
+        /// <summary>
+        /// Куда ляжет правка слота: в файл действующего значения, если он записываемый; иначе — в записываемый
+        /// файл после него (лучше с этим ключом), а нет такого — в дом ключа. <paramref name="shadowed"/> —
+        /// правка ляжет под файлом только для чтения и в игре видна не будет.
+        /// </summary>
+        public File TargetFor(string key, string language, string form, out bool shadowed)
+        {
+            shadowed = false;
+            var origin = OriginOf(key, language, form);
+            if (origin == null || origin.Writable) return origin ?? HomeOf(key);
+
+            File after = null;
+            for (var i = origin.Index + 1; i < _files.Count; i++)
+            {
+                var file = _files[i];
+                if (!file.Writable) continue;
+                if (file.Table.Contains(key)) return file;
+                after ??= file;
+            }
+
+            if (after != null) return after;
+
+            shadowed = true;
+            return HomeOf(key);
         }
 
         /// <summary>Ключ только в файлах для чтения — правки лягут перекрытием в записываемый файл.</summary>
@@ -471,13 +509,16 @@ namespace Exerussus.AppCore.Editor.Localization
                     var previous = before?.Find(value.Language, value.Form)?.Text;
                     if (previous == value.Text) continue;
 
-                    var origin = OriginOf(key, value.Language, value.Form);
-                    var target = origin != null && origin.Writable ? origin : home;
+                    var target = TargetFor(key, value.Language, value.Form, out var shadowed);
                     if (target == null || !target.Writable)
                     {
                         result.Errors.Add($"{key} [{value.Slot}]: нет записываемого файла");
                         continue;
                     }
+
+                    if (shadowed)
+                        result.Warnings.Add($"{key} [{value.Slot}]: записано в {target.Info.Path}, но в игре действует значение из " +
+                                            $"{OriginOf(key, value.Language, value.Form)?.Info.Path} (только чтение, позже по порядку)");
 
                     Edit(target).Set(key, value.Language, value.Text, value.Form);
                 }

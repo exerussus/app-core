@@ -3,6 +3,7 @@
     "rootNamespace": "Exerussus.AppCore.Tests",
     "references": [
         "Exerussus.AppCore",
+        "Exerussus.AppCore.Editor",
         "Exerussus.AppCore.Analytics",
         "Exerussus.AppCore.Audio",
         "Exerussus.AppCore.Audio.Editor",
