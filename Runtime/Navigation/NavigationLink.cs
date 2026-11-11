@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using UnityEngine;
 
 namespace Exerussus.AppCore.Navigation
 {
@@ -19,6 +20,17 @@ namespace Exerussus.AppCore.Navigation
         // страницы. Тип internal, так что защита от записи здесь стоит дешевле аллокаций.
         public static Dictionary<string, PageId> LinksPages => _linksPages;
         public static Dictionary<string, PopupId> LinksPopups => _linksPopups;
+
+        /// <summary>
+        /// Сброс таблиц на входе в Play Mode: без Domain Reload статика пережила бы прошлую
+        /// сессию, и кнопки новой сцены видели бы классы старого реестра.
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            _linksPages.Clear();
+            _linksPopups.Clear();
+        }
 
         public static void Initialize(NavigationSettings navigationSettings)
         {

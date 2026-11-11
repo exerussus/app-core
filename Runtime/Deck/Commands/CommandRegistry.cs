@@ -371,7 +371,14 @@ namespace Exerussus.AppCore.Deck
                 if (arg.Kind == ArgKind.Rest)
                 {
                     int s = tokens[t].OuterStart;
-                    values[i].Text = line.Substring(s, statementEnd - s).Trim();
+                    int e = statementEnd;
+                    while (e > s && char.IsWhiteSpace(line[e - 1])) e--;
+
+                    // хвост — один закрытый токен в кавычках (форма экранирует «;»): раскрыть, иначе — текст как есть
+                    TokenRange token = tokens[t];
+                    values[i].Text = token.Quoted && token.OuterEnd == e && token.OuterEnd == token.End + 1
+                        ? CommandLine.Value(line, token)
+                        : line.Substring(s, statementEnd - s).Trim();
                     values[i].Present = true;
                     break;
                 }

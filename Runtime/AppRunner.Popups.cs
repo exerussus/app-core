@@ -46,45 +46,19 @@ namespace Exerussus.AppCore
         public event Action<PopupId> OnPopupClosed;
 
         /// <summary>
-        /// Безопасно вызывает событие <see cref="OnPopupOpened"/>.
-        /// Исключения из подписчиков перехватываются и логируются через <see cref="LogException"/>.
+        /// Безопасно вызывает событие <see cref="OnPopupOpened"/>: каждый подписчик — в своём try.
         /// </summary>
-        private void InvokePopupOpened(PopupId popupUid)
-        {
-            try
-            {
-                OnPopupOpened?.Invoke(popupUid);
-            }
-            catch (Exception e)
-            {
-                Debug.LogException(e);
-            }
-        }
+        private void InvokePopupOpened(PopupId popupUid) => InvokeEach(OnPopupOpened, popupUid);
 
         /// <summary>
-        /// Безопасно вызывает событие <see cref="OnPopupClosed"/>.
-        /// Исключения из подписчиков перехватываются и логируются через <see cref="LogException"/>.
+        /// Безопасно вызывает событие <see cref="OnPopupClosed"/>: каждый подписчик — в своём try.
         /// </summary>
-        /// <param name="popupType">Тип попапа, который был закрыт.</param>
-        private void InvokePopupClosed(PopupId popupUid)
-        {
-            try
-            {
-                OnPopupClosed?.Invoke(popupUid);
-            }
-            catch (Exception e)
-            {
-                Debug.LogException(e);
-            }
-        }
+        /// <param name="popupUid">Попап, который был закрыт.</param>
+        private void InvokePopupClosed(PopupId popupUid) => InvokeEach(OnPopupClosed, popupUid);
 
-        
-        /// <summary>
-        /// Закрывает текущий верхний попап (если есть) и открывает указанный,
-        /// помещая его на вершину стека.
-        /// </summary>
-        /// <remarks>Если попап с указанным <paramref name="popupUid"/> не найден — вызов игнорируется с ошибкой в лог.</remarks>
-        /// <param name="popupUid">Идентификатор попапа, который нужно открыть.</param>
+        /// <summary>Предикат ожидания текущей операции с попапами. Создаётся один раз.</summary>
+        private Func<bool> _isPopupBusy;
+
         /// <summary>
         /// Монтирует попап и добивает всё, что требует готовой вёрстки. Зеркало
         /// <c>MountPage</c>: попапы всегда ленивые, их первое монтирование — это первое открытие.
@@ -97,6 +71,16 @@ namespace Exerussus.AppCore
             RegisterAppView(popup);
         }
 
+        /// <summary>
+        /// Закрывает текущий верхний попап (если есть) и открывает указанный,
+        /// помещая его на вершину стека.
+        /// </summary>
+        /// <remarks>
+        /// Если попап с указанным <paramref name="popupUid"/> не найден — вызов игнорируется с ошибкой в лог.
+        /// Попап, уже стоящий наверху, повторно не открывается; попап, открытый ниже по стеку, —
+        /// отказ с предупреждением.
+        /// </remarks>
+        /// <param name="popupUid">Идентификатор попапа, который нужно открыть.</param>
         public void SwitchPopup(PopupId popupUid)
         {
             if (!_popupsDict.TryGetValue(popupUid, out var popup))
@@ -105,7 +89,7 @@ namespace Exerussus.AppCore
                 return;
             }
 
-            SwitchPopupInternal(popup).Forget(Debug.LogException);
+            SwitchPopupInternal(popup).Forget(LogFault);
         }
 
         /// <summary>Проверяет, открыт ли указанный попап (находится ли он в стеке).</summary>
@@ -127,7 +111,11 @@ namespace Exerussus.AppCore
         }
 
         /// <summary>Открывает попап поверх текущего стека; новый попап получает фокус.</summary>
-        /// <remarks>Если попап с указанным <paramref name="popupType"/> не найден — вызов игнорируется с ошибкой в лог.</remarks>
+        /// <remarks>
+        /// Если попап с указанным <paramref name="popupType"/> не найден — вызов игнорируется с ошибкой в лог.
+        /// Попап, уже стоящий наверху, повторно не открывается; попап, открытый ниже по стеку, —
+        /// отказ с предупреждением: один попап не может лежать в стеке дважды.
+        /// </remarks>
         /// <param name="popupType">Идентификатор попапа для открытия.</param>
         public void OpenPopup(PopupId popupType)
         {
@@ -137,7 +125,7 @@ namespace Exerussus.AppCore
                 return;
             }
 
-            OpenPopupInternal(popup).Forget(Debug.LogException);
+            OpenPopupInternal(popup).Forget(LogFault);
         }
 
         /// <summary>Закрывает верхний попап в стеке; фокус возвращается предыдущему попапу, если он есть.</summary>
@@ -146,7 +134,93 @@ namespace Exerussus.AppCore
         {
             if (_popupStack.Count == 0) return;
 
-            CloseActivePopupInternal().Forget(Debug.LogException);
+            CloseActivePopupInternal().Forget(LogFault);
+        }
+
+        /// <summary>Лежит ли попап в стеке. Энумератор стека — структура, без аллокаций.</summary>
+        private bool IsInPopupStack(AppPopup popup)
+        {
+            foreach (var opened in _popupStack)
+                if (ReferenceEquals(opened, popup))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Проверка повторного открытия: наверху — молча ничего не делаем, ниже по стеку —
+        /// предупреждение и отказ.
+        /// </summary>
+        /// <returns><c>true</c>, если попап уже открыт и открывать его не нужно.</returns>
+        private bool RejectReopen(AppPopup popup)
+        {
+            if (_popupStack.Count == 0) return false;
+            if (ReferenceEquals(_popupStack.Peek(), popup)) return true;
+            if (!IsInPopupStack(popup)) return false;
+
+            Debug.LogWarning($"[AppCore] Попап \"{popup.PopupId}\" уже открыт ниже по стеку — повторное открытие отклонено.", popup);
+            return true;
+        }
+
+        /// <summary>
+        /// Открывает один попап поверх стека: объект, вёрстка (при первом открытии — со
+        /// <c>Setup</c> контроллера и обвязкой кнопок), <c>OnActivate</c> → <c>OnShow</c>, событие.
+        /// Фокусом не занимается — это дело вызывающей операции.
+        /// </summary>
+        /// <returns><c>false</c>, если у попапа нет вёрстки: ошибка уже в логе, в стек он не попал.</returns>
+        private async UniTask<bool> ShowPopupCore(AppPopup popup)
+        {
+            popup.gameObject.SetActive(true);
+            MountPopup(popup);
+
+            if (popup.Root == null)
+            {
+                // Пустой попап в стеке перехватывал бы «назад», а закрыть его было бы нечем.
+                popup.gameObject.SetActive(false);
+                return false;
+            }
+
+            _popupStack.Push(popup);
+
+            if (popup.HasController)
+            {
+                await popup.Controller.OnActivate();
+                ThrowIfDestroyed();
+                await popup.Controller.OnShow();
+                ThrowIfDestroyed();
+            }
+
+            InvokePopupOpened(popup.PopupUid);
+            return true;
+        }
+
+        /// <summary>
+        /// Закрывает один попап, уже снятый со стека: <c>OnHide</c> → <c>OnDeactivate</c>, снятие
+        /// вёрстки с экрана, объект, событие. <c>OnUnfocus</c> — дело вызывающей операции.
+        /// </summary>
+        private async UniTask HidePopupCore(AppPopup popup)
+        {
+            if (popup.HasController)
+            {
+                await popup.Controller.OnHide();
+                ThrowIfDestroyed();
+                await popup.Controller.OnDeactivate();
+                ThrowIfDestroyed();
+            }
+
+            // Вёрстка попапа живёт на панели независимо от GameObject: без Unmount он оставался
+            // бы поверх страницы и забирал ввод, а в стеке его уже нет — закрыть нечем.
+            popup.Unmount();
+            popup.gameObject.SetActive(false);
+            InvokePopupClosed(popup.PopupUid);
+        }
+
+        /// <summary>Отдаёт фокус верхнему попапу стека, если он есть.</summary>
+        private void FocusTopPopup()
+        {
+            if (_popupStack.Count == 0) return;
+
+            var top = _popupStack.Peek();
+            if (top.HasController) top.Controller.OnFocus().Forget(LogFault);
         }
 
         /// <summary>
@@ -154,7 +228,7 @@ namespace Exerussus.AppCore
         /// и открывает новый, помещая его в стек.
         /// </summary>
         /// <remarks>
-        /// Защищена флагом <see cref="_isChangingPopup"/>: если переход уже выполняется,
+        /// Защищена флагом <see cref="_isChangingPopup"/>: если операция с попапами уже выполняется,
         /// новый вызов будет проигнорирован с предупреждением в лог.
         /// Флаг сбрасывается в блоке <c>finally</c>, гарантируя корректное
         /// состояние даже при возникновении исключений.
@@ -168,6 +242,8 @@ namespace Exerussus.AppCore
                 return;
             }
 
+            if (RejectReopen(newPopup)) return;
+
             _isChangingPopup = true;
 
             try
@@ -175,40 +251,19 @@ namespace Exerussus.AppCore
                 if (_popupStack.Count > 0)
                 {
                     var current = _popupStack.Pop();
-
-                    if (current.HasController)
-                    {
-                        await current.Controller.OnUnfocus();
-                        await current.Controller.OnHide();
-                        await current.Controller.OnDeactivate();
-                    }
-                    current.gameObject.SetActive(false);
-                    var closedType = current.PopupUid;
-                    await RunOnMainThreadAsync(() => InvokePopupClosed(closedType));
+                    if (current.HasController) await current.Controller.OnUnfocus();
+                    ThrowIfDestroyed();
+                    await HidePopupCore(current);
                 }
 
-                _popupStack.Push(newPopup);
-
-                newPopup.gameObject.SetActive(true);
-                
-                if (newPopup.HasController)
-                {
-                    await newPopup.Controller.OnActivate();
-                    await newPopup.Controller.OnShow();
-                }
-                
-                var openedType = newPopup.PopupUid;
-                await RunOnMainThreadAsync(() => InvokePopupOpened(openedType));
+                await ShowPopupCore(newPopup);
             }
             finally
             {
                 _isChangingPopup = false;
             }
 
-            if (newPopup.HasController)
-            {
-                newPopup.Controller.OnFocus().Forget();
-            }
+            FocusTopPopup();
         }
 
         /// <summary>
@@ -216,7 +271,7 @@ namespace Exerussus.AppCore
         /// Текущий верхний попап теряет фокус, новый получает фокус после открытия.
         /// </summary>
         /// <remarks>
-        /// Защищена флагом <see cref="_isChangingPopup"/>: если переход уже выполняется,
+        /// Защищена флагом <see cref="_isChangingPopup"/>: если операция с попапами уже выполняется,
         /// новый вызов будет проигнорирован с предупреждением в лог.
         /// Флаг сбрасывается в блоке <c>finally</c>.
         /// </remarks>
@@ -229,6 +284,8 @@ namespace Exerussus.AppCore
                 return;
             }
 
+            if (RejectReopen(popup)) return;
+
             _isChangingPopup = true;
 
             try
@@ -236,36 +293,20 @@ namespace Exerussus.AppCore
                 if (_popupStack.Count > 0)
                 {
                     var current = _popupStack.Peek();
-                    
-                    if (current.HasController)
-                    {
-                        await current.Controller.OnUnfocus();
-                    }
+                    if (current.HasController) await current.Controller.OnUnfocus();
+                    ThrowIfDestroyed();
                 }
 
-                _popupStack.Push(popup);
-
-                popup.gameObject.SetActive(true);
-                MountPopup(popup);
-                
-                if (popup.HasController)
-                {
-                    await popup.Controller.OnActivate();
-                    await popup.Controller.OnShow();
-                }
-                
-                var openedType = popup.PopupUid;
-                await RunOnMainThreadAsync(() => InvokePopupOpened(openedType));
+                await ShowPopupCore(popup);
             }
             finally
             {
                 _isChangingPopup = false;
             }
 
-            if (popup.HasController)
-            {
-                popup.Controller.OnFocus().Forget();
-            }
+            // Фокус — верхнему: новому попапу, а если открыть его не удалось — прежнему,
+            // который уже успел получить OnUnfocus.
+            FocusTopPopup();
         }
 
         /// <summary>
@@ -279,42 +320,23 @@ namespace Exerussus.AppCore
         private async UniTask CloseActivePopupInternal()
         {
             if (_isChangingPopup) return;
+            if (_popupStack.Count == 0) return;
 
             _isChangingPopup = true;
-            AppPopup previous = null;
 
             try
             {
                 var popup = _popupStack.Pop();
-
-                if (popup.HasController)
-                {
-                    await popup.Controller.OnUnfocus();
-                    await popup.Controller.OnHide();
-                    await popup.Controller.OnDeactivate();
-                }
-                popup.Unmount();
-                popup.gameObject.SetActive(false);
-                var closedType = popup.PopupUid;
-                await RunOnMainThreadAsync(() => InvokePopupClosed(closedType));
-
-                if (_popupStack.Count > 0)
-                {
-                    previous = _popupStack.Peek();
-                }
+                if (popup.HasController) await popup.Controller.OnUnfocus();
+                ThrowIfDestroyed();
+                await HidePopupCore(popup);
             }
             finally
             {
                 _isChangingPopup = false;
             }
 
-            if (previous != null)
-            {
-                if (previous.HasController)
-                {
-                    previous.Controller.OnFocus().Forget();
-                }
-            }
+            FocusTopPopup();
         }
 
         /// <summary>
@@ -322,13 +344,20 @@ namespace Exerussus.AppCore
         /// Верхний попап сначала теряет фокус, затем все попапы последовательно скрываются и деактивируются.
         /// </summary>
         /// <remarks>
-        /// Вызывается автоматически перед каждым переходом между страницами в <see cref="NavigateTo"/>.
-        /// Если стек пуст — вызов игнорируется.
+        /// Вызывается навигацией перед уходом со страницы и перед активацией новой (<see cref="NavigateTo"/>).
+        /// Идущую операцию с попапами не перебивает, а дожидается: иначе её продолжение положило бы
+        /// попап в уже очищенный стек поверх новой страницы.
         /// Флаг <see cref="_isChangingPopup"/> устанавливается на всё время операции
         /// и сбрасывается в блоке <c>finally</c>.
         /// </remarks>
         private async UniTask CloseAllPopups()
         {
+            while (_isChangingPopup)
+            {
+                _isPopupBusy ??= () => _isChangingPopup;
+                await UniTask.WaitWhile(_isPopupBusy, cancellationToken: _lifetimeToken);
+            }
+
             if (_popupStack.Count == 0)
                 return;
 
@@ -337,26 +366,16 @@ namespace Exerussus.AppCore
             try
             {
                 var focusedPopup = _popupStack.Peek();
-                
+
                 if (focusedPopup.HasController)
                 {
                     await focusedPopup.Controller.OnUnfocus();
+                    ThrowIfDestroyed();
                 }
 
                 while (_popupStack.Count > 0)
                 {
-                    var popup = _popupStack.Pop();
-                    if (popup.HasController)
-                    {
-                        await popup.Controller.OnHide();
-                        await popup.Controller.OnDeactivate();
-                    }
-                    // Вёрстка попапа живёт на панели независимо от GameObject: без Unmount он оставался
-                    // поверх новой страницы и забирал ввод, а стек уже пуст — закрыть нечем.
-                    popup.Unmount();
-                    popup.gameObject.SetActive(false);
-                    var closedType = popup.PopupUid;
-                    await RunOnMainThreadAsync(() => InvokePopupClosed(closedType));
+                    await HidePopupCore(_popupStack.Pop());
                 }
             }
             finally

@@ -140,17 +140,27 @@ namespace Exerussus.AppCore.Views
             else Root.style.display = DisplayStyle.None;
         }
 
-        /// <summary>Сносит вёрстку. Ссылки контроллера на элементы после этого недействительны.</summary>
         private void OnLanguageChanged()
         {
             if (_hasController) controller.NotifyLanguageChanged();
         }
 
-        private void OnDestroy() => _text.Detach();
+        private void OnDestroy()
+        {
+            _text.Detach();
+            if (_hasController) controller.ReleaseMount();
+        }
 
+        /// <summary>
+        /// Сносит вёрстку. Контроллер получает <c>OnUnmount</c>, подписки из его <c>Track</c>
+        /// освобождаются. Ссылки контроллера на элементы после этого недействительны.
+        /// </summary>
         public void Unmount()
         {
             if (Root == null) return;
+
+            // Пока Root жив: в OnUnmount контроллер ещё может читать вёрстку.
+            if (_hasController) controller.ReleaseMount();
 
             _text.Detach();
             Root.RemoveFromHierarchy();

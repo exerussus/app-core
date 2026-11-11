@@ -77,6 +77,35 @@ namespace Exerussus.AppCore.Localization
             for (var i = 0; i < TextPasses.Count; i++) TextPasses[i].Index.Clear();
         }
 
+        // ================================================================ поток (отладка)
+
+        // Кэш слотов — обычные словари: Loc работает только на главном потоке. В редакторе и dev-сборке
+        // вызов с другого потока даёт одну ошибку в лог (сравнение id потока, без аллокаций).
+        private static int _mainThreadId;
+        private static bool _threadReported;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void CaptureMainThread()
+        {
+            _mainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
+            _threadReported = false;
+        }
+
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void CaptureMainThreadInEditor() => _mainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
+#endif
+
+        [System.Diagnostics.Conditional("UNITY_EDITOR"), System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+        private static void CheckThread()
+        {
+            if (_mainThreadId == 0 || _threadReported) return;
+            if (System.Threading.Thread.CurrentThread.ManagedThreadId == _mainThreadId) return;
+
+            _threadReported = true;
+            Debug.LogError("[Loc] Вызов не с главного потока: Loc работает только на главном потоке, кэш переводов не потокобезопасен.");
+        }
+
         private static void ResetPipeline()
         {
             PatternPasses.Clear();
@@ -88,6 +117,7 @@ namespace Exerussus.AppCore.Localization
 
         private static Slot SlotOf(string prefixed)
         {
+            CheckThread();
             if (ByPrefixed.TryGetValue(prefixed, out var slot)) return slot;
 
             var key = prefixed.Substring(1);
@@ -98,6 +128,7 @@ namespace Exerussus.AppCore.Localization
 
         private static Slot SlotOfKey(string key)
         {
+            CheckThread();
             if (ByKey.TryGetValue(key, out var slot)) return slot;
 
             slot = BuildSlot(key, null, true);
@@ -639,13 +670,16 @@ namespace Exerussus.AppCore.Localization
         /// <summary>Проходы, резолверы — изменились: кэш переводов устарел, тексты пересобираются.</summary>
         private static void InvalidateResolved()
         {
+            // кэш сбрасывается сразу и внутри Batch: слоты хранят номера в TextPasses, после снятия прохода
+            // они указывают на чужой проход; откладывается только событие
+            ClearResolved();
+
             if (_batchDepth > 0)
             {
                 _batchDirty = true;
                 return;
             }
 
-            ClearResolved();
             RaiseChanged();
         }
 

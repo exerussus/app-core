@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEngine.SceneManagement;
 using Exerussus.AppCore.Localization;
+using Exerussus.AppCore.Boot;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -83,8 +84,8 @@ namespace Exerussus.AppCore.Screens
         {
             // Пуленепробиваемый перезапуск: чистая перезагрузка активной сцены —
             // AppRunner пересоздастся и заново прогонит Awake → boot-машину.
-            var scene = SceneManager.GetActiveScene();
-            SceneManager.LoadScene(scene.buildIndex);
+            // Сцена вне Build Settings грузится по пути.
+            SceneReload.ReloadActive();
         }
 
         private static void DefaultQuit()

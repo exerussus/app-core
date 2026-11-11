@@ -1,8 +1,10 @@
-﻿using Cysharp.Threading.Tasks;
+﻿using System.Threading;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Views;
+using Exerussus.AppCore.Localization;
 
 namespace Exerussus.AppCore.Screens
 {
@@ -28,8 +30,28 @@ namespace Exerussus.AppCore.Screens
         private VisualElement _root;
         private bool _hasController;
         private bool _isInitialized;
-        
+        private readonly ViewText _text = new();
+
+        /// <summary>Анимация затухания, идущая сейчас. Новый Show/Hide отменяет прежнюю.</summary>
+        private CancellationTokenSource _fadeCts;
+
+        /// <summary>
+        /// Номер последнего запроса Show/Hide. Запрос, который за время своих await'ов
+        /// перебили новым, не доводит дело до конца — иначе Hide погасил бы уже показанный экран.
+        /// </summary>
+        private int _transition;
+
+        /// <summary>
+        /// Логическое состояние: куда экран идёт, а не что сейчас на экране. <c>true</c> с начала
+        /// Show, <c>false</c> с начала Hide — во время затухания объект ещё активен.
+        /// </summary>
         public bool IsVisible { get; private set; }
+
+        /// <summary>
+        /// Тексты экрана загрузки: ключи <c>^</c> вёрстки переведены и сменятся вместе с языком
+        /// (как у Error/Critical скринов). Строки из кода — <c>Text.Set(label, "^KEY")</c>.
+        /// </summary>
+        public LocBinder Text => _text.Binder;
 
         /// <summary>Проставляется AppRunner-ом до монтирования — нужен для регистрации безопасной зоны.</summary>
         public AppRunner AppRunner { get; internal set; }
@@ -60,11 +82,17 @@ namespace Exerussus.AppCore.Screens
 
             _hasController = loadingScreenController != null;
             if (_hasController) loadingScreenController.OnMount(_root);
+
+            // После OnMount: тексты, которые контроллер достроил кодом, тоже переводятся.
+            _text.Attach(_root, this, null);
             return true;
         }
 
         public async UniTask Show(VisualElement parent, bool instant = false)
         {
+            var transition = ++_transition;
+            StopFade();
+
             gameObject.SetActive(true);
             Mount(parent);
             if (_root == null) return;   // вёрстки нет — показывать нечего, ошибка уже в логе
@@ -86,31 +114,58 @@ namespace Exerussus.AppCore.Screens
                 }
                 else
                 {
-                    await FadeTo(1f);
+                    await FadeTo(1f, transition);
                 }
             }
         }
 
         public async UniTask Hide()
         {
+            var transition = ++_transition;
+            StopFade();
+
+            // Логическое состояние меняется сразу: запрос показа, пришедший во время затухания,
+            // должен увидеть экран скрывающимся и поднять его заново.
+            IsVisible = false;
+
             if (_hasController)
             {
                 await loadingScreenController.OnHide();
             }
             else
             {
-                await FadeTo(0f);
+                await FadeTo(0f, transition);
             }
-            
+
+            // Пока ждали, экран снова попросили показать — новый Show главнее, гасить нельзя.
+            if (transition != _transition) return;
+
             gameObject.SetActive(false);
             if (_root != null) _root.style.display = DisplayStyle.None;
-            IsVisible = false;
         }
 
-        private async UniTask FadeTo(float target)
+        private void OnDestroy()
+        {
+            StopFade();
+            _text.Detach();
+        }
+
+        /// <summary>Отменяет идущее затухание. Отменённая анимация больше не трогает opacity.</summary>
+        private void StopFade()
+        {
+            if (_fadeCts == null) return;
+
+            _fadeCts.Cancel();
+            _fadeCts = null;
+        }
+
+        private async UniTask FadeTo(float target, int transition)
         {
             if (_root == null) return;
-            
+
+            _fadeCts = new CancellationTokenSource();
+            var token = _fadeCts.Token;
+
             float start   = _root.style.opacity.value;
             float elapsed = 0f;
 
@@ -119,7 +174,10 @@ namespace Exerussus.AppCore.Screens
                 if (_root == null) return;
                 elapsed += Time.unscaledDeltaTime;   // экран загрузки обязан жить при timeScale = 0
                 _root.style.opacity = Mathf.Lerp(start, target, elapsed / fadeSeconds);
-                await UniTask.NextFrame();
+
+                // Перебили новым Show/Hide — тихо выходим, конечное состояние выставит он.
+                if (await UniTask.NextFrame(token).SuppressCancellationThrow()) return;
+                if (transition != _transition) return;
             }
 
             _root.style.opacity = target;

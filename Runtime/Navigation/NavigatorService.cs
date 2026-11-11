@@ -22,19 +22,46 @@ namespace Exerussus.AppCore.Navigation
     {
         [Inject] private readonly AppRunner _appRunner;
 
+        /// <summary>Адаптер, на чей «назад» подписан сервис. Нужен для отписки в <see cref="Destroy"/>.</summary>
+        private InputAdapter _inputAdapter;
+
+        /// <summary>Подписан ли сервис на <see cref="AppRunner.OnPageChanged"/>.</summary>
+        private bool _pageChangedSubscribed;
+
         public void OnInject(DependenciesContainer container)
         {
             if (container.Has<InputAdapter>())
             {
-                var adapter = container.Get<InputAdapter>();
-                adapter.OnBackPressed += OnBackPressed;
+                _inputAdapter = container.Get<InputAdapter>();
+                _inputAdapter.OnBackPressed += OnBackPressed;
             }
         }
 
         public UniTask Initialize(CancellationToken token)
         {
             _appRunner.OnPageChanged += OnPageChanged;
+            _pageChangedSubscribed = true;
             return UniTask.CompletedTask;
+        }
+
+        /// <summary>
+        /// Раннер уничтожается. Адаптер ввода может пережить сцену (DontDestroyOnLoad) — без
+        /// отписки он держал бы мёртвый сервис и звал бы навигацию уничтоженного раннера.
+        /// </summary>
+        public void Destroy()
+        {
+            // Сравнение по ссылке, а не Unity-null: отписаться нужно и от уже уничтоженного объекта.
+            if (_inputAdapter is not null)
+            {
+                _inputAdapter.OnBackPressed -= OnBackPressed;
+                _inputAdapter = null;
+            }
+
+            if (_pageChangedSubscribed && _appRunner is not null)
+            {
+                _appRunner.OnPageChanged -= OnPageChanged;
+                _pageChangedSubscribed = false;
+            }
         }
 
         /// <summary>Аппаратная кнопка «назад» (Android, Escape).</summary>

@@ -28,7 +28,8 @@ namespace Exerussus.AppCore.Localization
         /// <summary>
         /// Заменяет все пакеты владельца новым списком — одной пересборкой и одним <see cref="Changed"/>.
         /// Порядок списка — порядок применения (поздний главнее). Место группы среди других владельцев
-        /// сохраняется с первой выдачи. Пустой список — то же, что <see cref="ClearPackages"/>.
+        /// сохраняется с первой выдачи (в том числе пустой): пустой список снимает пакеты владельца, но место
+        /// остаётся за ним. Место освобождает только <see cref="ClearPackages"/>.
         /// </summary>
         /// <param name="owner">Владелец (загрузчик паков). Обязателен.</param>
         /// <param name="packages">Пакеты; <c>null</c>-элементы пропускаются (не прочитанный файл).</param>
@@ -44,10 +45,10 @@ namespace Exerussus.AppCore.Localization
             if (!EnsureInitialized()) return false;
 
             var group = PackageGroups.Find(g => ReferenceEquals(g.Owner, owner));
+            var hadLayers = group != null && group.Layers.Count > 0;
             if (group == null)
             {
-                if (packages == null || packages.Count == 0) return true;
-
+                // группа занимает место с первой выдачи, даже пустой: следующая выдача не уедет в конец
                 group = new PackageGroup { Owner = owner };
                 PackageGroups.Add(group);
             }
@@ -88,19 +89,25 @@ namespace Exerussus.AppCore.Localization
                 }
             }
 
-            if (group.Layers.Count == 0) PackageGroups.Remove(group);
-
-            Invalidate();
+            // пустая группа остаётся на своём месте; пересборка не нужна, если и раньше было пусто
+            if (hadLayers || group.Layers.Count > 0) Invalidate();
             return true;
         }
 
-        /// <summary>Снимает все пакеты владельца. False — их не было.</summary>
+        /// <summary>
+        /// Снимает все пакеты владельца и освобождает место его группы (следующая выдача встанет в конец).
+        /// False — пакетов не было.
+        /// </summary>
         public static bool ClearPackages(object owner)
         {
             if (!_initialized || owner == null) return false;
 
-            var removed = PackageGroups.RemoveAll(g => ReferenceEquals(g.Owner, owner));
-            if (removed == 0) return false;
+            var index = PackageGroups.FindIndex(g => ReferenceEquals(g.Owner, owner));
+            if (index < 0) return false;
+
+            var hadLayers = PackageGroups[index].Layers.Count > 0;
+            PackageGroups.RemoveAt(index);
+            if (!hadLayers) return false;
 
             Invalidate();
             return true;
@@ -139,11 +146,15 @@ namespace Exerussus.AppCore.Localization
                 yield return layer;
         }
 
-        /// <summary>Перечитывает пакеты, у которых есть файл (горячая перезагрузка).</summary>
+        /// <summary>
+        /// Перечитывает пакеты, у которых есть файл (горячая перезагрузка). Авто-пакеты пропускаются: их только что
+        /// заново прочитал <see cref="LoadAutoPackages"/>.
+        /// </summary>
         private static void ReloadPackages()
         {
             foreach (var layer in PackageLayers())
             {
+                if (ReferenceEquals(layer.Owner, AutoPackagesOwner)) continue;
                 if (layer.Package == null || string.IsNullOrEmpty(layer.Package.Path)) continue;
                 if (layer.Package.Read()) layer.Table = layer.Package.Table;
             }
@@ -174,6 +185,13 @@ namespace Exerussus.AppCore.Localization
             foreach (var reference in settings.Packages)
             {
                 if (reference == null || string.IsNullOrEmpty(reference.id) || !ids.Add(reference.id)) continue;
+
+                // та же проверка, что в SetPackages: id занят слоем AddLayer или пакетом проекта — пакет пропускается
+                if (IsLayerIdTaken(reference.id, group))
+                {
+                    Debug.LogWarning($"[Loc] Авто-пакет «{reference.id}» пропущен: id занят другим слоем или пакетом.");
+                    continue;
+                }
 
                 LocPackage package = null;
                 if (reference.asset != null)

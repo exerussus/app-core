@@ -3,7 +3,6 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Boot;
 using Exerussus.AppCore.Screens;
@@ -222,6 +221,11 @@ namespace Exerussus.AppCore
                 await NavigateTo(_defaultPage);
                 if (_isDestroyed) return;
 
+                // Стартовая страница могла не открыться (нет вёрстки — ошибка уже в логе):
+                // «готовое» приложение без единой страницы — это тот же провал бута.
+                if (_currentPage == null)
+                    throw new Exception($"страница \"{_defaultPage.PageId}\" не открылась");
+
                 IsAppReady = true;
                 _readySource.TrySetResult();
 
@@ -260,12 +264,26 @@ namespace Exerussus.AppCore
                 {
                     // Watchdog: гонка шага против таймаута. Зависший await (сеть не ответила)
                     // не оставляет юзера на вечном лоадере — он превращается в видимый Failed.
+                    // Шаг получает свой связанный токен: по таймауту он отменяется, а не
+                    // продолжает работать в фоне после ухода машины в Failed. После успеха этот
+                    // токен не трогаем и не освобождаем — сервис вправе держать его как токен
+                    // жизни раннера, он отменится вместе с _bootCts.
+                    var stepCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    using var timerCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+
+                    // Realtime: watchdog обязан срабатывать и при timeScale = 0.
                     var finished = await UniTask.WhenAny(
-                        stepFactory(token),
-                        UniTask.Delay(TimeSpan.FromSeconds(stepTimeoutSeconds), cancellationToken: token));
+                        stepFactory(stepCts.Token),
+                        UniTask.Delay(TimeSpan.FromSeconds(stepTimeoutSeconds), DelayType.Realtime, cancellationToken: timerCts.Token));
 
                     if (finished != 0)
+                    {
+                        stepCts.Cancel();
                         throw new TimeoutException($"шаг завис дольше {stepTimeoutSeconds:0.#}с");
+                    }
+
+                    // Шаг успел — таймер больше не нужен.
+                    timerCts.Cancel();
                 }
                 else
                 {
@@ -275,9 +293,10 @@ namespace Exerussus.AppCore
                 if (_isDestroyed) return;
                 _bootStepCompleted = true;
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested || _isDestroyed)
             {
-                // OnDestroy дернул CTS — выходим тихо.
+                // OnDestroy дернул CTS — выходим тихо. Отмена по иной причине (свой таймаут
+                // сервиса) — обычная ошибка шага и уходит в Failed ниже.
             }
             catch (BootHaltException e)
             {
@@ -517,13 +536,10 @@ namespace Exerussus.AppCore
         /// <summary>
         /// Перезапуск приложения после критического сбоя: чистая перезагрузка активной сцены.
         /// AppRunner пересоздастся и заново прогонит Awake → boot-машину. Гарантированно
-        /// снимает любое частично-инициализированное состояние.
+        /// снимает любое частично-инициализированное состояние. Сцена вне Build Settings
+        /// перезагружается по пути.
         /// </summary>
-        public void RestartBoot()
-        {
-            var scene = SceneManager.GetActiveScene();
-            SceneManager.LoadScene(scene.buildIndex);
-        }
+        public void RestartBoot() => SceneReload.ReloadActive();
 
         /// <summary>
         /// Ожидание полной готовности приложения (бут завершён, стартовая навигация выполнена).

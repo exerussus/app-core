@@ -10,11 +10,15 @@ namespace Exerussus.AppCore.Analytics
     /// </remarks>
     public sealed class AnalyticsPacket
     {
-        internal AnalyticsPacket(string id, string content, int eventCount)
+        internal AnalyticsPacket(string id, string content, int eventCount) : this(id, content, eventCount, content.Length * sizeof(char)) { }
+
+        /// <param name="bytes">Вес пакета для лимитов очереди: память (UTF-16) в лёгком режиме, размер на диске (UTF-8) — с хранилищем.</param>
+        internal AnalyticsPacket(string id, string content, int eventCount, int bytes)
         {
             Id = id;
             Content = content;
             EventCount = eventCount;
+            Bytes = bytes;
         }
 
         /// <summary>Стабильный id пакета: <c>&lt;сессия&gt;-&lt;номер&gt;</c>.</summary>
@@ -29,7 +33,7 @@ namespace Exerussus.AppCore.Analytics
         /// <summary>Сколько раз пакет уже выдавался адаптеру (включая текущую).</summary>
         public int Attempt { get; internal set; }
 
-        internal int Bytes => Content.Length * sizeof(char);
+        internal readonly int Bytes;
         internal PacketState State;
         internal double LeaseUntil;
         internal double RetryAt;

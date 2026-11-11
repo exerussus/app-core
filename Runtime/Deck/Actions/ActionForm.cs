@@ -277,11 +277,25 @@ namespace Exerussus.AppCore.Deck
                 if (string.IsNullOrEmpty(value)) value = _bindings[i].Arg.DefaultText ?? string.Empty;
 
                 sb.Append(' ');
-                sb.Append(_bindings[i].Arg.Kind == ArgKind.Rest ? value : CommandLine.Quote(value));
+                sb.Append(_bindings[i].Arg.Kind == ArgKind.Rest ? RestValue(value) : CommandLine.Quote(value));
             }
 
             _lastValues[_spec.Name] = values;
             _owner.RunFromForm(_id, sb.ToString());
+        }
+
+        /// <summary>
+        /// Хвост (Rest) идёт в строку как есть, пока парсер прочитает его одной командой. «;» вне кавычек
+        /// начал бы вторую команду — тогда значение целиком в кавычках: парсер раскрывает хвост из одного
+        /// токена в кавычках обратно в текст.
+        /// </summary>
+        private static string RestValue(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            CommandLine.NextStatement(value, 0, out _, out int end, out _);
+            bool split = end < value.Length;
+            bool quotedWhole = value.Length >= 2 && value[0] == '"' && value[value.Length - 1] == '"';
+            return split || quotedWhole ? CommandLine.Quote(value) : value;
         }
 
         private static string ValueOf(Binding b)
