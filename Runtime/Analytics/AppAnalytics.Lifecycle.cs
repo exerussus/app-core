@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using UnityEngine;
 
 namespace Exerussus.AppCore.Analytics
@@ -94,7 +95,8 @@ namespace Exerussus.AppCore.Analytics
             {
                 _maxQueuedPackets = settings.MaxQueuedPackets;
                 _maxQueuedBytes = settings.MaxQueuedBytes;
-                _store ??= new FileAnalyticsStore();
+                // своё хранилище пишет в фоне: запечатывание пакета не ждёт диска на главном потоке
+                _store ??= new FileAnalyticsStore(FileAnalyticsStore.DefaultDirectory(), background: true);
                 LoadQueue();
             }
 
@@ -292,6 +294,9 @@ namespace Exerussus.AppCore.Analytics
 
             if (_visibilityHooked) Safe(UnhookVisibility);
 
+            // фоновая запись очереди — дописать до конца (выход из Play, сброс статики)
+            WaitStore();
+
             var host = _host;
             _host = null;
             _pump = null;
@@ -306,6 +311,20 @@ namespace Exerussus.AppCore.Analytics
         }
 
         private static bool _deckRegistered;
+
+        /// <summary>Дождаться фоновой записи своего хранилища (выход, остановка). Ошибка — дальше без диска.</summary>
+        private static void WaitStore()
+        {
+            if (!(_store is FileAnalyticsStore files)) return;
+            try
+            {
+                if (!files.WaitIdle(3000)) Debug.LogWarning("[AppAnalytics] Очередь не успела записаться на диск за 3 с.");
+            }
+            catch (Exception e)
+            {
+                DropStore(e);
+            }
+        }
 
         private static void UnsubscribeQuit() => Application.quitting -= OnQuitting;
 
@@ -354,7 +373,18 @@ namespace Exerussus.AppCore.Analytics
             var loaded = new List<KeyValuePair<string, string>>();
             try
             {
-                var stored = _store.LoadAll();
+                // файловое хранилище сначала режет по лимитам по метаданным и читает только оставшееся
+                IEnumerable<KeyValuePair<string, string>> stored;
+                if (_store is FileAnalyticsStore files)
+                {
+                    stored = files.LoadNewest(_maxQueuedPackets, _maxQueuedBytes, out var skipped);
+                    _dropped += skipped;
+                }
+                else
+                {
+                    stored = _store.LoadAll();
+                }
+
                 if (stored != null)
                     foreach (var pair in stored)
                     {
@@ -371,7 +401,7 @@ namespace Exerussus.AppCore.Analytics
             foreach (var pair in loaded)
             {
                 if (string.IsNullOrEmpty(pair.Key) || pair.Value == null || IndexOf(pair.Key) >= 0) continue;
-                var packet = new AnalyticsPacket(pair.Key, pair.Value, -1);
+                var packet = new AnalyticsPacket(pair.Key, pair.Value, -1, Encoding.UTF8.GetByteCount(pair.Value));
                 _queue.Add(packet);
                 _queuedBytes += packet.Bytes;
             }
@@ -388,6 +418,7 @@ namespace Exerussus.AppCore.Analytics
             {
                 WriteSystem("app.session.end");
                 Flush(AnalyticsFlushReason.Quit);
+                WaitStore();
                 UnhookVisibility();
             }
             catch (Exception e)

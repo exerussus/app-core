@@ -102,6 +102,19 @@ namespace Exerussus.AppCore.Views
                 await current.Hide();
             }
 
+            // Фрагмент уже показан в другом хосте этого вью: снимаем его оттуда штатно —
+            // с OnDeactivate прежнего показа и очисткой записи, иначе прежний хост продолжал бы
+            // числить его за собой, а GetShown/Hide по нему били бы в чужую вёрстку.
+            for (var i = 0; i < _hosts.Count; i++)
+            {
+                if (i == index) continue;
+                if (!_shown.TryGetValue(i, out var other) || !ReferenceEquals(other, fragment)) continue;
+
+                _shown.Remove(i);
+                await fragment.Hide();
+                break;
+            }
+
             _shown[index] = fragment;
 
             // Тот же фрагмент попросили в другой хост: Mount увидел бы готовый Root и молча

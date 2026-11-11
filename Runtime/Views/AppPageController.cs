@@ -1,4 +1,6 @@
-﻿using Cysharp.Threading.Tasks;
+﻿using System;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
 using Exerussus.AppCore.Localization;
@@ -46,10 +48,44 @@ namespace Exerussus.AppCore.Views
         public virtual UniTask OnShow() => UniTask.CompletedTask;
         public virtual UniTask OnHide() => UniTask.CompletedTask;
 
+        private readonly MountScope _mountScope = new();
+
+        /// <summary>
+        /// Закрепляет подписку за вёрсткой: она освободится, когда вёрстка будет снесена
+        /// (сразу после <see cref="OnUnmount"/>). Подписки из <c>Initialize</c> отдаются сюда —
+        /// тогда повторное монтирование не копит их.
+        /// </summary>
+        /// <remarks>
+        /// Уход с вью вёрстку не сносит (она только прячется), поэтому здесь освобождение
+        /// происходит при уничтожении объекта вью.
+        /// </remarks>
+        protected void Track(IDisposable subscription) => _mountScope.Track(subscription);
+
+        /// <summary>Токен, отменяемый при сносе вёрстки (см. <see cref="Track"/>).</summary>
+        protected CancellationToken MountToken => _mountScope.Token;
+
+        /// <summary>
+        /// Вёрстка сносится. Вызывается до освобождения подписок из <see cref="Track"/>,
+        /// элементы ещё доступны.
+        /// </summary>
+        protected virtual void OnUnmount() { }
+
         internal void Setup()
         {
+            _mountScope.Begin();
             BindElements();
             Initialize();
+        }
+
+        /// <summary>Снос вёрстки: <see cref="OnUnmount"/>, затем отмена токена и подписок. Идемпотентно.</summary>
+        internal void ReleaseMount()
+        {
+            if (!_mountScope.IsMounted) return;
+
+            try { OnUnmount(); }
+            catch (Exception e) { Debug.LogException(e, this); }
+
+            _mountScope.Release(this);
         }
     }
 }

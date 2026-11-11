@@ -96,7 +96,13 @@ namespace Exerussus.AppCore.Views
             if (_hasController) controller.NotifyLanguageChanged();
         }
 
-        private void OnDestroy() => _text.Detach();
+        private void OnDestroy()
+        {
+            _text.Detach();
+
+            // Вёрстка попапа живёт до уничтожения объекта — здесь её ресурсы и отпускаются.
+            if (_hasController) controller.ReleaseMount();
+        }
 
         public void PreInitialize()
         {

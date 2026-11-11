@@ -46,8 +46,11 @@ namespace Exerussus.AppCore.Editor.Localization
             /// <summary>Используются, а в таблице нет: ключ → файлы.</summary>
             public readonly SortedDictionary<string, List<string>> Unknown = new(StringComparer.Ordinal);
 
-            /// <summary>Есть в таблице, а нигде не используются (кроме динамических).</summary>
+            /// <summary>Есть в таблице, а нигде не используются (<see cref="LocUsageIndex.IsUsed"/>).</summary>
             public readonly List<string> Unused = new();
+
+            /// <summary>Индекс полный. false — обход прерывали: «нет употреблений» по нему ничего не значит.</summary>
+            public bool Complete = true;
 
             public string Describe(int max)
             {
@@ -80,20 +83,11 @@ namespace Exerussus.AppCore.Editor.Localization
 
         private static Report Check(LocTable table, LocSettings settings, Dictionary<string, List<string>> usages, LocUsageIndex index)
         {
-            var report = new Report();
+            var report = new Report { Complete = index.Complete };
 
-            foreach (var pair in usages)
-            {
-                if (table.Contains(pair.Key) || IsBuiltin(pair.Key) || IsDynamic(pair.Key, settings)) continue;
-                report.Unknown[pair.Key] = pair.Value;
-            }
-
-            // Ключ, который код собирает по найденному префиксу (Tr("alchemy.why." + id)), употреблён.
-            foreach (var entry in table.Entries)
-                if (!usages.ContainsKey(entry.Key) && !IsDynamic(entry.Key, settings) && (index == null || !index.IsPrefixed(entry.Key)))
-                    report.Unused.Add(entry.Key);
-
-            report.Unused.Sort(StringComparer.Ordinal);
+            // Правила «употреблён / неизвестен» — одни для сверки, таблицы на странице и CLI: LocUsageIndex.
+            foreach (var key in index.Unknown(table, settings)) report.Unknown[key] = usages[key];
+            report.Unused.AddRange(index.Unused(table, settings));
             return report;
         }
     }

@@ -71,6 +71,8 @@ namespace Exerussus.AppCore.Deck
             _tabsVersion++;
             OpenChanged = null;
             TargetChanged = null;
+            _capture = null;
+            _captureThread = 0;
 
             _mainThreadId = Thread.CurrentThread.ManagedThreadId;
 
@@ -222,6 +224,7 @@ namespace Exerussus.AppCore.Deck
         public static bool Execute(string line, CommandSource source = CommandSource.Code, bool echo = true)
         {
             if (string.IsNullOrWhiteSpace(line)) return true;
+            if (!CheckMainThread(nameof(Execute))) return false;
 
             if (echo) Print(line, DeckLogType.Input);
 
@@ -241,6 +244,7 @@ namespace Exerussus.AppCore.Deck
         {
             output = string.Empty;
             if (string.IsNullOrWhiteSpace(line)) return true;
+            if (!CheckMainThread(nameof(ExecuteCaptured))) return false;
 
             var previous = _capture;
             var previousThread = _captureThread;
@@ -550,5 +554,27 @@ namespace Exerussus.AppCore.Deck
         internal static int TabsVersion => _tabsVersion;
 
         internal static bool IsMainThread => Thread.CurrentThread.ManagedThreadId == _mainThreadId;
+
+        /// <summary>
+        /// Команды трогают Unity API и реестры — только главный поток. Чужой поток: команда не выполняется,
+        /// в редакторе и dev-сборке — ошибка в лог. Поток ещё не известен (до первого запуска) — пропускаем.
+        /// </summary>
+        private static bool CheckMainThread(string method)
+        {
+            if (_mainThreadId == 0 || IsMainThread) return true;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            Debug.LogError($"[AppDeck] {method} вызван не с главного потока — команда не выполнена. Перенесите вызов на главный поток.");
+#endif
+            return false;
+        }
+
+#if UNITY_EDITOR
+        // в редакторе без Play (тесты, инструменты) главный поток известен сразу после загрузки домена
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void CaptureMainThreadInEditor()
+        {
+            if (_mainThreadId == 0) _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+        }
+#endif
     }
 }

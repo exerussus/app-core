@@ -47,6 +47,7 @@ namespace Exerussus.AppCore.Audio
         private static bool _on;             // запечено и включено
         private static bool _muted;
         private static float _master = 1f;
+        private static bool _masterSet;      // громкость выставлена из кода — Reload её не сбрасывает
         private static float _now;
 
         private static Slot[] _slots = Array.Empty<Slot>();
@@ -60,6 +61,7 @@ namespace Exerussus.AppCore.Audio
 
         private static AudioSource[] _voices = Array.Empty<AudioSource>();
         private static float[] _voiceEnd = Array.Empty<float>();
+        private static float[] _voiceBase = Array.Empty<float>();   // громкость голоса без общей (событие × клип)
         private static int[] _voiceGroup = Array.Empty<int>();
         private static int _voiceCount;
         private static GameObject _host;
@@ -68,6 +70,10 @@ namespace Exerussus.AppCore.Audio
         private static bool _clockInstalled;
         private static bool _focusHooked;
         private static bool _pauseUnfocused;
+        private static bool _unfocused;      // приложение без фокуса (только при PauseWhenUnfocused)
+#if UNITY_EDITOR
+        private static bool _playModeHooked;
+#endif
         private static HashSet<string> _warned;
         private static SoundEntry[] _catalog;   // каталог запущенного звука (тесты могут подменить настройки)
 
@@ -87,11 +93,19 @@ namespace Exerussus.AppCore.Audio
             }
         }
 
-        /// <summary>Общая громкость запуска (умножается на громкость событий). Старт — из настроек.</summary>
+        /// <summary>
+        /// Общая громкость (умножается на громкость событий). Старт — из настроек; выставленное из кода значение
+        /// переживает <see cref="Reload"/> и сразу применяется к звучащим голосам.
+        /// </summary>
         public static float MasterVolume
         {
             get => _master;
-            set => _master = value < 0f ? 0f : value > 1f ? 1f : value;
+            set
+            {
+                _master = value < 0f ? 0f : value > 1f ? 1f : value;
+                _masterSet = true;
+                ApplyMaster();
+            }
         }
 
         /// <summary>Сколько записей в каталоге (диапазон номеров для <see cref="Play"/>).</summary>
@@ -105,6 +119,8 @@ namespace Exerussus.AppCore.Audio
         {
             if (!_on || _muted) return;
             if ((uint)id >= (uint)_count) return;
+            // без фокуса остальные голоса на паузе — новый звук не запускаем вовсе (и не тратим кулдаун)
+            if (_unfocused) return;
 
             ref Slot slot = ref _slots[id];
             int count = slot.ClipCount;
@@ -140,7 +156,9 @@ namespace Exerussus.AppCore.Audio
 
             source.clip = _clips[clip];
             source.pitch = pitch;
-            source.volume = slot.Volume * _clipVolume[clip] * _master;
+            float volume = slot.Volume * _clipVolume[clip];
+            _voiceBase[voice] = volume;
+            source.volume = volume * _master;
             source.Play();
 
             _voiceEnd[voice] = now + _clipLength[clip] / pitch;
@@ -195,7 +213,8 @@ namespace Exerussus.AppCore.Audio
 
         /// <summary>
         /// Перечитать каталог (после импорта / правок в редакторе). Аллоцирует — не для игрового цикла.
-        /// Номера событий не меняются, пока не меняется список ключей.
+        /// Номера событий не меняются, пока не меняется список ключей. Громкость, выставленная из кода
+        /// (<see cref="MasterVolume"/>), сохраняется.
         /// </summary>
         public static void Reload()
         {
@@ -211,6 +230,8 @@ namespace Exerussus.AppCore.Audio
         {
             Shutdown();
             _muted = false;
+            _master = 1f;
+            _masterSet = false;
             _warned = null;
         }
 
@@ -225,13 +246,24 @@ namespace Exerussus.AppCore.Audio
             Bake(settings);
             CreateVoices(settings);
 
-            _master = settings.MasterVolume;
+            if (!_masterSet) _master = settings.MasterVolume;
             _rng = (uint)Environment.TickCount | 1u;
             _now = Time.unscaledTime;
 
-            if (Application.isPlaying) InstallClock();
+            if (Application.isPlaying)
+            {
+                InstallClock();
+#if UNITY_EDITOR
+                if (!_playModeHooked)
+                {
+                    UnityEditor.EditorApplication.playModeStateChanged += OnPlayModeChanged;
+                    _playModeHooked = true;
+                }
+#endif
+            }
 
             _pauseUnfocused = settings.PauseWhenUnfocused;
+            _unfocused = _pauseUnfocused && Application.isPlaying && !Application.isFocused;
             if (_pauseUnfocused && !_focusHooked)
             {
                 Application.focusChanged += OnFocusChanged;
@@ -244,6 +276,7 @@ namespace Exerussus.AppCore.Audio
         private static void Shutdown()
         {
             _on = false;
+            _unfocused = false;
             UninstallClock();
 
             if (_focusHooked)
@@ -268,9 +301,21 @@ namespace Exerussus.AppCore.Audio
             _groups = Array.Empty<AudioMixerGroup>();
             _voices = Array.Empty<AudioSource>();
             _voiceEnd = Array.Empty<float>();
+            _voiceBase = Array.Empty<float>();
             _voiceGroup = Array.Empty<int>();
             _voiceCount = 0;
         }
+
+#if UNITY_EDITOR
+        // выход из Play Mode: снять систему с PlayerLoop и голоса, статика не тянется в редактор
+        private static void OnPlayModeChanged(UnityEditor.PlayModeStateChange state)
+        {
+            if (state != UnityEditor.PlayModeStateChange.ExitingPlayMode) return;
+            UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            _playModeHooked = false;
+            Shutdown();
+        }
+#endif
 
         // ---------------------------------------------------------------- запекание
 
@@ -385,11 +430,21 @@ namespace Exerussus.AppCore.Audio
         private static void CreateVoices(SoundSettings settings)
         {
             int count = settings.Voices;
-            _host = new GameObject("[AppSound]") { hideFlags = HideFlags.HideAndDontSave };
-            if (Application.isPlaying) UnityEngine.Object.DontDestroyOnLoad(_host);
+            if (Application.isPlaying)
+            {
+                // HideInHierarchy, не DontSave: такой объект Unity уничтожает при выходе из Play Mode
+                _host = new GameObject("[AppSound]") { hideFlags = HideFlags.HideInHierarchy };
+                UnityEngine.Object.DontDestroyOnLoad(_host);
+            }
+            else
+            {
+                // вне Play (тесты, предпросмотр): объект не попадает в сцену, снимается через Stop/Reload
+                _host = new GameObject("[AppSound]") { hideFlags = HideFlags.HideAndDontSave };
+            }
 
             _voices = new AudioSource[count];
             _voiceEnd = new float[count];
+            _voiceBase = new float[count];
             _voiceGroup = new int[count];
             _voiceCount = count;
 
@@ -407,6 +462,18 @@ namespace Exerussus.AppCore.Audio
         }
 
         // ---------------------------------------------------------------- голоса, случайность
+
+        /// <summary>Применить общую громкость к звучащим голосам.</summary>
+        private static void ApplyMaster()
+        {
+            float now = _now;
+            for (int i = 0; i < _voiceCount; i++)
+            {
+                if (_voiceEnd[i] <= now) continue;
+                AudioSource source = _voices[i];
+                if (source != null) source.volume = _voiceBase[i] * _master;
+            }
+        }
 
         /// <summary>Свободный голос, иначе тот, что закончится раньше всех (вытеснение).</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -516,6 +583,7 @@ namespace Exerussus.AppCore.Audio
         private static void OnFocusChanged(bool focused)
         {
             if (!_pauseUnfocused) return;
+            _unfocused = !focused;
             for (int i = 0; i < _voiceCount; i++)
             {
                 AudioSource source = _voices[i];
@@ -545,6 +613,7 @@ namespace Exerussus.AppCore.Audio
         internal static void StartWith(SoundSettings settings)
         {
             Shutdown();
+            _masterSet = false;
             Startup(settings);
         }
 

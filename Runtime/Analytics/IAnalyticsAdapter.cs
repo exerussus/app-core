@@ -7,7 +7,9 @@ namespace Exerussus.AppCore.Analytics
     /// <para>Контракт: на каждый <see cref="Deliver"/> — ровно один ответ <c>AppAnalytics.Complete(id)</c>
     /// (доставлен — удалить из очереди) или <c>AppAnalytics.Fail(id, retryAfter)</c> (повторить позже).
     /// Ответ можно дать сразу или позже (после сетевого запроса). Без ответа дольше
-    /// <see cref="AnalyticsSettings.DeliveryLease"/> пакет вернётся в очередь сам.</para>
+    /// <see cref="AnalyticsSettings.DeliveryLease"/> пакет вернётся в очередь сам; поздний <c>Fail</c> по нему
+    /// игнорируется. Если пакет к тому времени выдан снова, отличить ответ старой попытки можно только по номеру:
+    /// <c>AppAnalytics.Fail(id, attempt, retryAfter)</c> с <see cref="AnalyticsPacket.Attempt"/>, запомненным в Deliver.</para>
     /// <para>Пакет может прийти повторно — дедупликация по <see cref="AnalyticsPacket.Id"/> на стороне получателя.</para>
     /// <para>Нужно и сохранить, и отправить — это один адаптер с двумя шагами, а не два адаптера.</para>
     /// <para><b>WebGL.</b> С «Exception Support: Explicitly Thrown Exceptions Only» catch ловит только явный

@@ -73,7 +73,9 @@ namespace Exerussus.AppCore
         /// <remarks>
         /// Пока включено — экран не скрывается по завершении переходов между страницами.
         /// Если экран загрузки не назначен (см. <see cref="_hasScreen"/>) — метод лишь
-        /// запоминает флаг и ничего не показывает.
+        /// запоминает флаг и ничего не показывает. Решение принимается по логическому состоянию
+        /// экрана (<see cref="LoadingScreen.IsVisible"/> — куда он идёт), а не по activeSelf:
+        /// во время затухания объект ещё активен, хотя экран уже скрывается.
         /// </remarks>
         /// <param name="isEnabled"><c>true</c> — удерживать экран; <c>false</c> — разрешить его скрытие.</param>
         public void SetForceScreen(bool isEnabled)
@@ -85,12 +87,12 @@ namespace Exerussus.AppCore
 
             if (isEnabled)
             {
-                if (!loadingScreen.gameObject.activeSelf)
-                    loadingScreen.Show(_screensLayer).Forget(Debug.LogException);
+                if (!loadingScreen.IsVisible)
+                    loadingScreen.Show(_screensLayer).Forget(LogFault);
             }
             else
             {
-                if (loadingScreen.gameObject.activeSelf && !_isChangingPage)
+                if (loadingScreen.IsVisible && !_isChangingPage)
                     loadingScreen.Hide().SuppressCancellationThrow().Forget();
             }
         }

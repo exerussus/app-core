@@ -115,12 +115,24 @@ namespace Exerussus.AppCore.Views
             if (_hasController) controller.NotifyLanguageChanged();
         }
 
-        private void OnDestroy() => _text.Detach();
+        private void OnDestroy()
+        {
+            _text.Detach();
+
+            // Вёрстка страницы живёт до уничтожения объекта — здесь её ресурсы и отпускаются.
+            if (_hasController) controller.ReleaseMount();
+        }
 
         public void Unmount()
         {
-            Root.style.display = DisplayStyle.None;
+            if (Root != null) Root.style.display = DisplayStyle.None;
         }
+
+        /// <summary>
+        /// Можно ли страницу смонтировать: вёрстка уже собрана или задана. Навигация проверяет
+        /// это до того, как уйти с текущей страницы.
+        /// </summary>
+        internal bool CanMount => _view.IsBuilt || visualTree != null;
 
         public void PreInitialize()
         {
@@ -135,6 +147,9 @@ namespace Exerussus.AppCore.Views
 
         public async UniTask Activate()
         {
+            if (Root == null)
+                throw new System.InvalidOperationException($"[AppCore] Страница \"{pageId}\" не смонтирована: нет вёрстки — активировать нечего.");
+
             Root.style.display = DisplayStyle.Flex;
             if (_hasController)
             {

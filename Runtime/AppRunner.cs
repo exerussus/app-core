@@ -30,9 +30,8 @@ namespace Exerussus.AppCore
     /// Все переходы являются асинхронными и защищены флагами блокировки,
     /// чтобы исключить одновременные конкурирующие переходы.
     /// <para>
-    /// Для безопасного вызова событий из произвольного потока используется встроенный
-    /// диспатчер главного потока (см. <see cref="RunOnMainThreadAsync"/>): действия
-    /// складываются в потокобезопасную очередь и выполняются в <see cref="Update"/>.
+    /// Весь API раннера — только с главного потока: события навигации и попапов
+    /// вызываются там же, где идёт переход.
     /// </para>
     /// </remarks>
     [RequireComponent(typeof(PanelRenderer))]
@@ -150,17 +149,66 @@ namespace Exerussus.AppCore
         private IAppService[] _services;
 
         /// <summary>
-        /// Флаг завершения работы компонента. Устанавливается в <see cref="OnDestroy"/>,
-        /// после чего постановка новых действий в очередь главного потока становится бессмысленной
-        /// и приводит к немедленному завершению ожидающих <see cref="UniTask"/> с отменой.
+        /// Флаг завершения работы компонента. Устанавливается в <see cref="OnDestroy"/>;
+        /// асинхронные переходы, проснувшиеся после него, выходят без работы.
         /// </summary>
         private bool _isDestroyed;
 
+        /// <summary>
+        /// Токен жизни раннера (<c>destroyCancellationToken</c>), снятый в <see cref="Awake"/>:
+        /// после уничтожения объекта само свойство уже не читается.
+        /// </summary>
+        private CancellationToken _lifetimeToken;
+
+        /// <summary>
+        /// Токен жизни раннера: отменяется при его уничтожении. Ожидания навигации и попапов
+        /// идут под ним; сервисам и контроллерам годится для своих долгих операций.
+        /// </summary>
+        public CancellationToken LifetimeToken => _lifetimeToken;
+
+        /// <summary>
+        /// Причина, по которой конфигурация раннера непригодна для бута (нет настроек, нет страниц).
+        /// Заполняется в <see cref="Awake"/>; после построения панели машина сразу уходит в Failed.
+        /// </summary>
+        private string _startupFailReason;
+
+        /// <summary>
+        /// Обработчик ошибок fire-and-forget операций: отмена при уничтожении раннера — штатный
+        /// выход, а не ошибка. Делегат один на все вызовы.
+        /// </summary>
+        private static readonly Action<Exception> LogFault = e =>
+        {
+            if (e is OperationCanceledException) return;
+            Debug.LogException(e);
+        };
+
+        /// <summary>Прерывает асинхронный переход, если раннер уже уничтожен.</summary>
+        private void ThrowIfDestroyed() => _lifetimeToken.ThrowIfCancellationRequested();
+
+        /// <summary>
+        /// Вызывает подписчиков события по одному: исключение одного логируется и не мешает
+        /// остальным. Список вызова аллоцируется — допустимо, это не путь кадра.
+        /// </summary>
+        private static void InvokeEach<T>(Action<T> handler, T arg)
+        {
+            if (handler == null) return;
+
+            var list = handler.GetInvocationList();
+            for (var i = 0; i < list.Length; i++)
+            {
+                try { ((Action<T>)list[i]).Invoke(arg); }
+                catch (Exception e) { Debug.LogException(e); }
+            }
+        }
+
         private void Awake()
         {
+            _lifetimeToken = destroyCancellationToken;
+
             if (navigationSettings == null)
             {
                 Debug.LogError($"[AppCore] Нет NavigationSettings. Ассет должен лежать в {AppCorePaths.NavigationSettingsPath} — откройте сцену в редакторе, ссылка проставится сама.", this);
+                FailOnStart("нет NavigationSettings");
                 return;
             }
 
@@ -169,8 +217,6 @@ namespace Exerussus.AppCore
                 BuildInfo.SetCurrent(buildInfo);
                 if (buildInfo.LogOnStart) Debug.Log($"[AppCore] Сборка: {buildInfo.Format(buildInfo.OverlayFormat)} ({buildInfo.FullVersion})");
             }
-
-            _mainThreadId = Thread.CurrentThread.ManagedThreadId;
 
             // Экран загрузки и скрины опциональны: фиксируем наличие один раз.
             // Если поле пустое — соответствующий код становится no-op.
@@ -199,7 +245,8 @@ namespace Exerussus.AppCore
 
             if (allPages.Length == 0)
             {
-                Debug.LogError($"App Runner has no child pages. Assign at least one page below it in the hierarchy for it to work.");
+                Debug.LogError($"App Runner has no child pages. Assign at least one page below it in the hierarchy for it to work.", this);
+                FailOnStart("у AppRunner нет ни одной страницы");
                 return;
             }
             
@@ -218,6 +265,30 @@ namespace Exerussus.AppCore
             // потом строим правило — иначе пропорция считалась бы по уже расширенному референсу.
             SetupFramePanelSettings();
             ScreenMetrics.Policy = ResolveFramePolicy();
+
+            _panelRenderer.RegisterUIReloadCallback(OnUIReload);
+            _uiCallbackRegistered = true;
+        }
+
+        /// <summary>
+        /// Конфигурация непригодна для бута. Ошибка уже в логе; машину не запускаем, но панель
+        /// всё равно поднимаем — чтобы вместо пустого экрана показать критический скрин
+        /// (или аварийный оверлей) с причиной.
+        /// </summary>
+        private void FailOnStart(string reason)
+        {
+            _startupFailReason = reason;
+
+            // Экран загрузки не нужен: показывать будем только ошибку.
+            _hasScreen = false;
+            _hasErrorScreen = errorScreen != null;
+            _hasCriticalScreen = criticalScreen != null;
+
+            ScreenMetrics.Invalidate();
+            ScreenMetrics.Policy = FramePolicy.Disabled;
+
+            _panelRenderer = GetComponent<PanelRenderer>();
+            if (_panelRenderer == null) return;
 
             _panelRenderer.RegisterUIReloadCallback(OnUIReload);
             _uiCallbackRegistered = true;
@@ -247,6 +318,13 @@ namespace Exerussus.AppCore
             _uiBuilt = true;
 
             SetupUiLayers(root);
+
+            if (_startupFailReason != null)
+            {
+                _bootFailReason = _startupFailReason;
+                TransitionTo(BootState.Failed);
+                return;
+            }
 
             // Стартуем машину. Дальше всё движется через Update.
             TransitionTo(BootState.CoveringScreen);
@@ -354,9 +432,8 @@ namespace Exerussus.AppCore
         /// Очищает контекст приложения при уничтожении объекта в редакторе.
         /// </summary>
         /// <remarks>
-        /// Дополнительно отменяет все ожидающие операции в очереди главного потока,
-        /// чтобы привязанные к ним <see cref="UniTask"/> завершились с отменой,
-        /// а не зависли навсегда.
+        /// Ожидания навигации и попапов идут под <see cref="LifetimeToken"/> и завершаются
+        /// отменой вместе с объектом, а не висят навсегда.
         /// </remarks>
         private void OnDestroy()
         {
@@ -377,8 +454,6 @@ namespace Exerussus.AppCore
                 _bootCts = null;
             }
 
-            DrainMainThreadQueueOnDestroy();
-
             // снимаем ожидающих готовности, если бут не дошёл до Ready
             if (!IsAppReady) _readySource.TrySetCanceled();
 
@@ -394,8 +469,6 @@ namespace Exerussus.AppCore
 
         private void Update()
         {
-            PumpMainThreadQueue();
-
             // Кадр и безопасная зона обслуживаются независимо от стадии бута: они нужны и экрану
             // загрузки, и критическому скрину, то есть ещё до готовности приложения.
             TickScreenMetrics();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 
 namespace Exerussus.AppCore.Analytics
@@ -136,16 +137,29 @@ namespace Exerussus.AppCore.Analytics
 
         /// <summary>
         /// Доставка не удалась: пакет вернётся в очередь. <paramref name="retryAfterSeconds"/> — не раньше чем через
-        /// столько секунд (иначе нарастающая пауза из настроек).
+        /// столько секунд (иначе нарастающая пауза из настроек). Пакет не у адаптера (аренда истекла, он уже ждёт
+        /// повтора) — поздний ответ игнорируется.
         /// </summary>
-        public static void Fail(string packetId, double retryAfterSeconds = -1)
+        public static void Fail(string packetId, double retryAfterSeconds = -1) => FailCore(packetId, -1, retryAfterSeconds);
+
+        /// <summary>
+        /// То же, с номером попытки (<see cref="AnalyticsPacket.Attempt"/> на момент <see cref="IAnalyticsAdapter.Deliver"/>):
+        /// ответ устаревшей попытки — аренда истекла, пакет уже выдан снова — игнорируется.
+        /// </summary>
+        public static void Fail(string packetId, int attempt, double retryAfterSeconds) => FailCore(packetId, attempt, retryAfterSeconds);
+
+        private static void FailCore(string packetId, int attempt, double retryAfterSeconds)
         {
             var index = IndexOf(packetId);
             if (index < 0) return;
 
+            var packet = _queue[index];
+            // ответ не на текущую выдачу: пакет уже вернулся в очередь по аренде или выдан заново
+            if (packet.State != PacketState.InFlight) return;
+            if (attempt >= 0 && attempt != packet.Attempt) return;
+
             if (double.IsNaN(retryAfterSeconds) || double.IsInfinity(retryAfterSeconds)) retryAfterSeconds = -1;
 
-            var packet = _queue[index];
             packet.State = PacketState.Pending;
             packet.RetryAt = Now() + Math.Max(Backoff(packet.Attempt), retryAfterSeconds);
         }
@@ -171,7 +185,10 @@ namespace Exerussus.AppCore.Analytics
                     return;
                 }
 
-                var packet = new AnalyticsPacket(_bufferPacketId, new string(_chars, 0, _len), _bufferEvents);
+                var content = new string(_chars, 0, _len);
+                // вес для лимитов: лёгкий режим — память (UTF-16), с хранилищем — байты на диске (UTF-8, раз на пакет)
+                var bytes = _lean ? content.Length * sizeof(char) : Encoding.UTF8.GetByteCount(content);
+                var packet = new AnalyticsPacket(_bufferPacketId, content, _bufferEvents, bytes);
                 _len = 0;
                 _bufferPacketId = null;
                 _bufferEvents = 0;
@@ -229,7 +246,8 @@ namespace Exerussus.AppCore.Analytics
             // теряются (поздний Complete по ним просто ничего не найдёт)
             var settings = _settings;
             var extra = settings != null ? settings.MaxInFlight : 4;
-            var packetBytes = settings != null ? (long)settings.MaxPacketChars * sizeof(char) : 0;
+            // пакет в байтах: UTF-16 в памяти (лёгкий режим) или UTF-8 на диске (до 3 байт на символ)
+            var packetBytes = settings != null ? (long)settings.MaxPacketChars * (_lean ? sizeof(char) : 3) : 0;
             var hardPackets = _maxQueuedPackets + extra;
             var hardBytes = _maxQueuedBytes + extra * packetBytes;
             while (_queue.Count > 0 && (_queue.Count > hardPackets || _queuedBytes > hardBytes))

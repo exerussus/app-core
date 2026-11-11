@@ -297,6 +297,21 @@ namespace Exerussus.AppCore.Localization
             if (_current == null) _current = this;
         }
 
+        /// <summary>Подменить настройки текущего запуска (тесты). Возвращает прежние — вернуть тем же вызовом.</summary>
+        internal static LocSettings OverrideForTests(LocSettings settings)
+        {
+            var previous = Current;
+            _current = settings;
+            return previous;
+        }
+
+        /// <summary>Каталог авто-пакетов (тесты): в ассете его запекает редактор.</summary>
+        internal void SetPackagesForTests(LocPackageLoading loading, List<LocPackageRef> list)
+        {
+            packageLoading = loading;
+            packages = list ?? new List<LocPackageRef>();
+        }
+
         private void OnDisable()
         {
             if (_current == this) _current = null;

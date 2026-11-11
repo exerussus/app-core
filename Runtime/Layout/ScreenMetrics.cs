@@ -135,6 +135,18 @@ namespace Exerussus.AppCore.Layout
         }
 
         /// <summary>
+        /// Полный сброс на входе в Play Mode: без Domain Reload правило кадра и счётчик версий
+        /// пережили бы прошлую сессию.
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            _policy = default;
+            Version = 0;
+            Invalidate();
+        }
+
+        /// <summary>
         /// Сбрасывает кэш расчёта. Нужен на старте <see cref="AppRunner"/>: статика переживает
         /// перезагрузку сцены (и Play Mode без Domain Reload), а панель у новой сцены может быть
         /// другой — с другим масштабом.
