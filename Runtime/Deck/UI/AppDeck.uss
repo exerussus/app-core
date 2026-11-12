@@ -109,6 +109,30 @@
     background-color: rgba(255, 216, 102, 0.12);
 }
 
+/* кнопка с подписью: в тулбаре консоли значки не нужны — шрифт приложения может их не иметь */
+.appdeck__text-button {
+    margin: 0 1px;
+    padding: 0 6px;
+    height: 22px;
+    flex-shrink: 0;
+    border-width: 0;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.04);
+    color: var(--deck-dim);
+    font-size: 11px;
+    -unity-text-align: middle-center;
+}
+
+.appdeck__text-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--deck-text);
+}
+
+.appdeck__text-button--on {
+    color: var(--deck-accent);
+    background-color: rgba(255, 216, 102, 0.12);
+}
+
 .appdeck__target {
     flex-direction: row;
     align-items: center;
@@ -176,6 +200,8 @@
 .appdeck-search {
     flex-grow: 1;
     max-width: 320px;
+    min-width: 60px;
+    flex-shrink: 1;
     margin: 0 6px;
     height: 22px;
 }
@@ -265,6 +291,16 @@
     flex-shrink: 0;
     border-top-width: 1px;
     border-top-color: var(--deck-line);
+}
+
+.appdeck-console__details-bar {
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    height: 26px;
+    padding: 0 4px;
+    flex-shrink: 0;
+    background-color: rgba(0, 0, 0, 0.25);
 }
 
 .appdeck-console__details-scroll {

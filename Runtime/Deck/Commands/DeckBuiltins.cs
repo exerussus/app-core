@@ -25,6 +25,18 @@ namespace Exerussus.AppCore.Deck
                    .Run(ctx => AppDeck.ClearLog())
                    .Register(owner);
 
+            AppDeck.Command("log.copy")
+                   .Summary("Скопировать лог в буфер обмена (со стеками ошибок)")
+                   .Choice("what", new[] { "all", "errors" }, "all — весь лог, errors — только предупреждения и ошибки", "all")
+                   .Run(ctx =>
+                   {
+                       // считаем до вывода: строка-ответ этой команды в копию не попадает
+                       int copied = AppDeck.CopyLog(ctx.GetInt(0) == 1);
+                       if (copied < 0) ctx.Warn("Буфер обмена недоступен на этой платформе.");
+                       else ctx.Print($"Скопировано записей: {copied}.");
+                   })
+                   .Register(owner);
+
             AppDeck.Command("echo")
                    .Summary("Напечатать текст")
                    .Arg("text", ArgKind.Rest, "Что напечатать")
