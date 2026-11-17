@@ -45,6 +45,8 @@ namespace Exerussus.AppCore.Deck
         private ScrollView _detailsScroll;
         private Label _detailsText;
         private Button _collapseButton;
+        private Button _copyButton;
+        private Button _copyEntryButton;
         private Button _stickButton;
         private readonly Button[] _filterButtons = new Button[4];
         private readonly Label[] _filterCounts = new Label[4];
@@ -111,10 +113,11 @@ namespace Exerussus.AppCore.Deck
             _search.RegisterValueChangedCallback(OnSearchChanged);
             toolbar.Add(_search);
 
-            _collapseButton = ToolbarButton(toolbar, "≡", "Сворачивать повторы", ToggleCollapse);
-            _stickButton = ToolbarButton(toolbar, "⤓", "Держать в конце", () => _list.StickToEnd = !_list.StickToEnd);
-            ToolbarButton(toolbar, "⧉", "Копировать (выбранное или всё видимое)", Copy);
-            ToolbarButton(toolbar, "⌫", "Очистить", AppDeck.ClearLog);
+            // подписи текстом, не значками: значков (⧉ ⤓ ⌫) нет в шрифтах из TextSettings — кнопки были пустыми
+            _collapseButton = ToolbarButton(toolbar, "Свернуть", "Сворачивать повторы", ToggleCollapse);
+            _stickButton = ToolbarButton(toolbar, "В конец", "Держать в конце", () => _list.StickToEnd = !_list.StickToEnd);
+            _copyButton = ToolbarButton(toolbar, CopyTitle, "Копировать лог: всё, что прошло фильтр и поиск, со стеками ошибок", CopyVisible);
+            ToolbarButton(toolbar, "Очистить", "Очистить консоль", AppDeck.ClearLog);
 
             _list = new VirtualList { name = "log", RowHeight = 20f };
             _list.AddToClassList("appdeck-console__list");
@@ -126,6 +129,14 @@ namespace Exerussus.AppCore.Deck
             _details = new VisualElement { name = "details" };
             _details.AddToClassList("appdeck-console__details");
             _details.style.display = DisplayStyle.None;
+
+            var detailsBar = new VisualElement();
+            detailsBar.AddToClassList("appdeck-console__details-bar");
+            _copyEntryButton = new Button(CopySelected) { text = CopyEntryTitle, tooltip = "Копировать выбранную запись целиком, со стеком" };
+            _copyEntryButton.AddToClassList("appdeck__text-button");
+            detailsBar.Add(_copyEntryButton);
+            _details.Add(detailsBar);
+
             // ПОДРОБНОСТИ — ПРОКРУТКОЙ: длинная запись (help, стек) не влезает в панель. Текст выделяется мышью.
             _detailsScroll = new ScrollView(ScrollViewMode.Vertical) { name = "details-scroll" };
             _detailsScroll.AddToClassList("appdeck-console__details-scroll");
@@ -150,7 +161,7 @@ namespace Exerussus.AppCore.Deck
         private static Button ToolbarButton(VisualElement toolbar, string text, string tooltip, Action click)
         {
             var button = new Button(click) { text = text, tooltip = tooltip };
-            button.AddToClassList("appdeck__icon-button");
+            button.AddToClassList("appdeck__text-button");
             toolbar.Add(button);
             return button;
         }
@@ -385,29 +396,56 @@ namespace Exerussus.AppCore.Deck
             RefreshCollapseButton();
         }
 
-        private void Copy()
+        private const string CopyTitle = "Копировать";
+        private const string CopyEntryTitle = "Копировать запись";
+        private const string CopiedTitle = "Скопировано";
+        private const string CopyFailedTitle = "Не вышло";
+        private const long FlashMs = 1200;
+
+        /// <summary>Всё, что прошло фильтр и поиск: шапка, строки с временем, стеки предупреждений и ошибок.</summary>
+        private void CopyVisible()
         {
             if (_bound == null) return;
 
-            if (_selectedSeq >= 0 && _bound.IsAlive(_selectedSeq))
-            {
-                GUIUtility.systemCopyBuffer = DetailsOf(_bound, _selectedSeq);
-                return;
-            }
+            var sb = new StringBuilder(128 + _viewCount * 96);
+            LogExport.AppendHeader(sb, _viewCount);
 
-            var sb = new StringBuilder(_viewCount * 64);
             for (var i = 0; i < _viewCount; i++)
             {
                 long seq = SeqAt(i);
                 if (!_bound.IsAlive(seq)) continue;
-
-                sb.Append('[').Append(_bound.TypeOf(seq)).Append("] ").Append(_bound.MessageOf(seq));
-                int repeat = _bound.RepeatOf(seq);
-                if (repeat > 1) sb.Append(" ×").Append(repeat);
-                sb.Append('\n');
+                LogExport.AppendEntry(sb, _bound, seq, LogExport.WantsStack(_bound.TypeOf(seq)));
             }
 
-            GUIUtility.systemCopyBuffer = sb.ToString();
+            Flash(_copyButton, CopyTitle, DeckClipboard.Copy(sb.ToString()));
+        }
+
+        /// <summary>Выбранная запись целиком (стек — всегда, если он есть).</summary>
+        private void CopySelected()
+        {
+            if (_bound == null || _selectedSeq < 0 || !_bound.IsAlive(_selectedSeq)) return;
+
+            var sb = new StringBuilder(256);
+            LogExport.AppendEntry(sb, _bound, _selectedSeq, true);
+            Flash(_copyEntryButton, CopyEntryTitle, DeckClipboard.Copy(sb.ToString()));
+        }
+
+        /// <summary>Короткий отклик на кнопке: «Скопировано», через секунду — прежняя подпись.</summary>
+        private static void Flash(Button button, string title, bool ok)
+        {
+            if (button == null) return;
+
+            button.text = ok ? CopiedTitle : CopyFailedTitle;
+            button.AddToClassList("appdeck__text-button--on");
+
+            // повторное нажатие до возврата подписи — таймер заново, а не второй таймер
+            if (button.userData is IVisualElementScheduledItem pending) pending.Pause();
+            button.userData = button.schedule.Execute(() =>
+            {
+                button.text = title;
+                button.RemoveFromClassList("appdeck__text-button--on");
+                button.userData = null;
+            }).StartingIn(FlashMs);
         }
 
         private void OnSubmitted(string line)
@@ -425,11 +463,11 @@ namespace Exerussus.AppCore.Deck
         private void RefreshCollapseButton()
         {
             LogBuffer log = AppDeck.Log;
-            _collapseButton.EnableInClassList("appdeck__icon-button--on", log != null && log.Collapse);
+            _collapseButton.EnableInClassList("appdeck__text-button--on", log != null && log.Collapse);
         }
 
         private void RefreshStickButton() =>
-            _stickButton?.EnableInClassList("appdeck__icon-button--on", _list != null && _list.StickToEnd);
+            _stickButton?.EnableInClassList("appdeck__text-button--on", _list != null && _list.StickToEnd);
 
         private void RefreshCounts(LogBuffer log)
         {

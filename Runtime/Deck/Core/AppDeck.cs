@@ -375,6 +375,24 @@ namespace Exerussus.AppCore.Deck
         /// <summary>Очистить консоль.</summary>
         public static void ClearLog() => _log?.Clear();
 
+        /// <summary>
+        /// Текст лога консоли для баг-репорта: шапка (приложение, версия, платформа), строки
+        /// «[чч:мм:сс] Тип сообщение ×N», стеки предупреждений и ошибок. Фильтр окна не учитывается.
+        /// Пусто, если панель не поднята. Только главный поток.
+        /// </summary>
+        /// <param name="problemsOnly">Только предупреждения и ошибки.</param>
+        public static string ExportLog(bool problemsOnly = false) => LogExport.All(_log, problemsOnly, out _);
+
+        /// <summary>
+        /// Скопировать лог (<see cref="ExportLog"/>) в буфер обмена; на WebGL — в буфер браузера.
+        /// Возвращает число скопированных записей, -1 — платформа отказала. Только главный поток.
+        /// </summary>
+        public static int CopyLog(bool problemsOnly = false)
+        {
+            string text = LogExport.All(_log, problemsOnly, out int count);
+            return DeckClipboard.Copy(text) ? count : -1;
+        }
+
         // ================================================================ цель
 
         /// <summary>Выбранная цель (ставит владелец механизма выбора). Команды получают её аргументом <see cref="ArgKind.Target"/>.</summary>
